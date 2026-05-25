@@ -64,7 +64,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
         const tickets = ticketService.listTickets({
           status: input.status,
           priority: input.priority,
-          assignedTo: input.assigned_to,
+          assignedTo: normalizeAssignee(input.assigned_to),
           limit: input.limit ?? 20,
         });
         return JSON.stringify({ count: tickets.length, tickets: tickets.map(summarize) });

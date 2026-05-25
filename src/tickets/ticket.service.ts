@@ -58,7 +58,7 @@ export function listTickets(filters: TicketFilters = {}): Ticket[] {
     params.push(filters.priority);
   }
   if (filters.assignedTo) {
-    query += ` AND assigned_to = ?`;
+    query += ` AND LOWER(assigned_to) = LOWER(?)`;
     params.push(filters.assignedTo);
   }
 
