@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+ojahoud.com/
+tap-onboarding/
+.DS_Store
+.claude/
+docs/
