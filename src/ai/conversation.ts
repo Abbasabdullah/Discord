@@ -48,12 +48,20 @@ function trimHistory(userId: string) {
     .select()
     .from(conversationHistory)
     .where(eq(conversationHistory.phoneNumber, userId))
-    .orderBy(asc(conversationHistory.createdAt))
+    .orderBy(asc(conversationHistory.id))
     .all();
 
   if (rows.length > SHORT_HISTORY_TURNS) {
-    for (const row of rows.slice(0, rows.length - SHORT_HISTORY_TURNS)) {
-      db.delete(conversationHistory).where(eq(conversationHistory.id, row.id)).run();
+    let keep = rows.slice(-SHORT_HISTORY_TURNS);
+    // Ensure kept rows start with a user message
+    while (keep.length > 0 && keep[0].role !== 'user') {
+      keep = keep.slice(1);
+    }
+    const keepIds = new Set(keep.map(r => r.id));
+    for (const row of rows) {
+      if (!keepIds.has(row.id)) {
+        db.delete(conversationHistory).where(eq(conversationHistory.id, row.id)).run();
+      }
     }
   }
 }

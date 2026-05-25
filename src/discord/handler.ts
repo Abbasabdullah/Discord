@@ -94,7 +94,25 @@ export function registerHandlers(client: Client) {
     try {
       const finalText = text || attachmentDesc;
       const reply = await handleMessage(userId, finalText, username);
-      await message.reply(reply);
+
+      // Discord has 2000 char limit — split if needed
+      if (reply.length <= 2000) {
+        await message.reply(reply);
+      } else {
+        const chunks: string[] = [];
+        let remaining = reply;
+        while (remaining.length > 0) {
+          if (remaining.length <= 2000) { chunks.push(remaining); break; }
+          let splitAt = remaining.lastIndexOf('\n', 2000);
+          if (splitAt < 500) splitAt = 2000;
+          chunks.push(remaining.slice(0, splitAt));
+          remaining = remaining.slice(splitAt).trim();
+        }
+        await message.reply(chunks[0]);
+        for (let i = 1; i < chunks.length; i++) {
+          if ('send' in message.channel) await message.channel.send(chunks[i]);
+        }
+      }
     } catch (err) {
       console.error('Message handling error:', err);
       await message.reply('⚠️ Something went wrong. Please try again.');

@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task Advisor Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e4e4e7;
+    --muted: #71717a;
+    --accent: #6366f1;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+    --blue: #3b82f6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+
+  /* ── Login ─────────────────────────────── */
+  #login-screen {
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; flex-direction: column; gap: 16px;
+  }
+  #login-screen h1 { font-size: 24px; margin-bottom: 8px; }
+  #login-screen input {
+    padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 16px; width: 280px;
+  }
+  #login-screen button {
+    padding: 12px 32px; border-radius: 8px; border: none;
+    background: var(--accent); color: white; font-size: 16px; cursor: pointer;
+  }
+  #login-screen button:hover { opacity: 0.9; }
+  #login-error { color: var(--red); font-size: 14px; display: none; }
+
+  /* ── Dashboard ─────────────────────────── */
+  #dashboard { display: none; max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 22px; display: flex; align-items: center; gap: 10px; }
+  header button {
+    padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--muted); cursor: pointer; font-size: 13px;
+  }
+  header button:hover { color: var(--text); border-color: var(--text); }
+
+  /* ── Stats ──────────────────────────────── */
+  .stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; text-align: center;
+  }
+  .stat-card .number { font-size: 32px; font-weight: 700; }
+  .stat-card .label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
+  .stat-card.urgent .number { color: var(--red); }
+  .stat-card.open .number { color: var(--yellow); }
+  .stat-card.closed .number { color: var(--green); }
+  .stat-card.reminders .number { color: var(--blue); }
+  .stat-card.team .number { color: var(--accent); }
+
+  /* ── Tabs ───────────────────────────────── */
+  .tabs {
+    display: flex; gap: 4px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--border); padding-bottom: 0;
+  }
+  .tab {
+    padding: 10px 20px; cursor: pointer; border: none; background: none;
+    color: var(--muted); font-size: 14px; font-weight: 500;
+    border-bottom: 2px solid transparent; transition: all 0.2s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── Filters ────────────────────────────── */
+  .filters {
+    display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .filters select {
+    padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); font-size: 13px;
+  }
+
+  /* ── Table ──────────────────────────────── */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  table {
+    width: 100%; border-collapse: collapse; background: var(--card);
+    border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  }
+  th {
+    text-align: left; padding: 12px 16px; font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted);
+    background: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 12px 16px; font-size: 14px; border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover { background: rgba(255,255,255,0.02); }
+
+  /* ── Badges ─────────────────────────────── */
+  .badge {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+  }
+  .badge.open { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .badge.in_progress { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .badge.pending { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .badge.closed { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge.low { background: rgba(113,113,122,0.15); color: var(--muted); }
+  .badge.medium { background: rgba(59,130,246,0.15); color: var(--blue); }
+  .badge.high { background: rgba(249,115,22,0.15); color: var(--orange); }
+  .badge.urgent { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge.sent { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge.pending-r { background: rgba(234,179,8,0.15); color: var(--yellow); }
+
+  /* ── Activity ───────────────────────────── */
+  .activity-list { display: flex; flex-direction: column; gap: 8px; }
+  .activity-item {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; display: flex; align-items: center; gap: 12px;
+  }
+  .activity-icon {
+    width: 36px; height: 36px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0;
+  }
+  .activity-icon.ticket_created { background: rgba(34,197,94,0.15); }
+  .activity-icon.ticket_updated { background: rgba(59,130,246,0.15); }
+  .activity-icon.ticket_closed { background: rgba(113,113,122,0.15); }
+  .activity-icon.reminder_created { background: rgba(234,179,8,0.15); }
+  .activity-icon.reminder_sent { background: rgba(99,102,241,0.15); }
+  .activity-icon.report_sent { background: rgba(249,115,22,0.15); }
+  .activity-text { flex: 1; }
+  .activity-text strong { color: var(--text); }
+  .activity-text span { color: var(--muted); font-size: 13px; }
+  .activity-time { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+  /* ── Team ────────────────────────────────── */
+  .team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; }
+  .team-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px;
+  }
+  .team-card h3 { font-size: 16px; margin-bottom: 8px; }
+  .team-card .team-stats { display: flex; gap: 12px; }
+  .team-card .team-stat { font-size: 13px; color: var(--muted); }
+  .team-card .team-stat strong { color: var(--text); }
+
+  .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+
+  /* ── Refresh ─────────────────────────────── */
+  .refresh-bar {
+    display: flex; justify-content: flex-end; margin-bottom: 8px; gap: 8px; align-items: center;
+  }
+  .refresh-bar span { font-size: 12px; color: var(--muted); }
+  .refresh-bar button {
+    padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--card); color: var(--text); cursor: pointer; font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Login Screen -->
+<div id="login-screen">
+  <h1>Task Advisor</h1>
+  <p style="color: var(--muted); margin-bottom: 8px;">Enter password to access the dashboard</p>
+  <input type="password" id="login-pw" placeholder="Password" onkeydown="if(event.key==='Enter')doLogin()">
+  <button onclick="doLogin()">Login</button>
+  <div id="login-error">Wrong password</div>
+</div>
+
+<!-- Dashboard -->
+<div id="dashboard">
+  <header>
+    <h1>Task Advisor Dashboard</h1>
+    <button onclick="doLogout()">Logout</button>
+  </header>
+
+  <!-- Stats -->
+  <div class="stats" id="stats"></div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="tickets">Tickets</button>
+    <button class="tab" data-tab="reminders">Reminders</button>
+    <button class="tab" data-tab="activity">Activity</button>
+    <button class="tab" data-tab="team">Team</button>
+  </div>
+
+  <!-- Tickets -->
+  <div class="panel active" id="panel-tickets">
+    <div class="filters">
+      <select id="filter-status" onchange="loadTickets()">
+        <option value="all">All Status</option>
+        <option value="open">Open</option>
+        <option value="in_progress">In Progress</option>
+        <option value="pending">Pending</option>
+        <option value="closed">Closed</option>
+      </select>
+      <select id="filter-priority" onchange="loadTickets()">
+        <option value="all">All Priority</option>
+        <option value="urgent">Urgent</option>
+        <option value="high">High</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+      </select>
+    </div>
+    <div class="refresh-bar">
+      <span id="tickets-count"></span>
+      <button onclick="loadTickets()">Refresh</button>
+    </div>
+    <div id="tickets-table"></div>
+  </div>
+
+  <!-- Reminders -->
+  <div class="panel" id="panel-reminders">
+    <div class="refresh-bar">
+      <button onclick="loadReminders()">Refresh</button>
+    </div>
+    <div id="reminders-table"></div>
+  </div>
+
+  <!-- Activity -->
+  <div class="panel" id="panel-activity">
+    <div class="refresh-bar">
+      <button onclick="loadActivity()">Refresh</button>
+    </div>
+    <div id="activity-feed"></div>
+  </div>
+
+  <!-- Team -->
+  <div class="panel" id="panel-team">
+    <div class="refresh-bar">
+      <button onclick="loadTeam()">Refresh</button>
+    </div>
+    <div id="team-grid"></div>
+  </div>
+</div>
+
+<script>
+const API = '';
+
+// ── Auth ────────────────────────────────
+async function doLogin() {
+  const pw = document.getElementById('login-pw').value;
+  const res = await fetch(API + '/api/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw }),
+  });
+  if (res.ok) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    loadAll();
+  } else {
+    document.getElementById('login-error').style.display = 'block';
+  }
+}
+
+async function doLogout() {
+  await fetch(API + '/api/logout', { method: 'POST' });
+  location.reload();
+}
+
+async function checkAuth() {
+  const res = await fetch(API + '/api/stats');
+  if (res.ok) {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+    loadAll();
+  }
+}
+
+// ── Load All ────────────────────────────
+function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); }
+
+// ── Stats ───────────────────────────────
+async function loadStats() {
+  const res = await fetch(API + '/api/stats');
+  const s = await res.json();
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-card open"><div class="number">${s.openTickets}</div><div class="label">Open Tickets</div></div>
+    <div class="stat-card closed"><div class="number">${s.closedTickets}</div><div class="label">Closed</div></div>
+    <div class="stat-card urgent"><div class="number">${s.urgentTickets}</div><div class="label">Urgent</div></div>
+    <div class="stat-card reminders"><div class="number">${s.pendingReminders}</div><div class="label">Pending Reminders</div></div>
+    <div class="stat-card team"><div class="number">${s.teamMembers}</div><div class="label">Team Members</div></div>
+  `;
+}
+
+// ── Tickets ─────────────────────────────
+async function loadTickets() {
+  const status = document.getElementById('filter-status').value;
+  const priority = document.getElementById('filter-priority').value;
+  const res = await fetch(API + `/api/tickets?status=${status}&priority=${priority}`);
+  const tickets = await res.json();
+  document.getElementById('tickets-count').textContent = `${tickets.length} tickets`;
+
+  if (!tickets.length) {
+    document.getElementById('tickets-table').innerHTML = '<div class="empty">No tickets found</div>';
+    return;
+  }
+
+  document.getElementById('tickets-table').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>#</th><th>Title</th><th>Status</th><th>Priority</th>
+        <th>Assigned To</th><th>Created By</th><th>Age</th>
+      </tr></thead>
+      <tbody>${tickets.map(t => `
+        <tr>
+          <td>${t.id}</td>
+          <td>${esc(t.title)}</td>
+          <td><span class="badge ${t.status}">${t.status.replace('_', ' ')}</span></td>
+          <td><span class="badge ${t.priority}">${t.priority}</span></td>
+          <td>${esc(t.assigned_to || '—')}</td>
+          <td>${esc(t.created_by)}</td>
+          <td>${ago(t.created_at)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── Reminders ───────────────────────────
+async function loadReminders() {
+  const res = await fetch(API + '/api/reminders');
+  const reminders = await res.json();
+
+  if (!reminders.length) {
+    document.getElementById('reminders-table').innerHTML = '<div class="empty">No reminders</div>';
+    return;
+  }
+
+  document.getElementById('reminders-table').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>#</th><th>Message</th><th>For</th><th>When</th><th>Status</th>
+      </tr></thead>
+      <tbody>${reminders.map(r => `
+        <tr>
+          <td>${r.id}</td>
+          <td>${esc(r.message)}</td>
+          <td>${esc(r.username)}</td>
+          <td>${fmtDate(r.remind_at)}</td>
+          <td><span class="badge ${r.sent ? 'sent' : 'pending-r'}">${r.sent ? 'Sent' : 'Pending'}</span></td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+// ── Activity ────────────────────────────
+const activityIcons = {
+  ticket_created: '+', ticket_updated: '~', ticket_closed: '-',
+  reminder_created: '!', reminder_sent: '*', report_sent: '#',
+};
+const activityLabels = {
+  ticket_created: d => `<strong>${esc(d.created_by)}</strong> created ticket <strong>#${d.id} ${esc(d.title)}</strong>`,
+  ticket_updated: d => `Ticket <strong>#${d.id} ${esc(d.title)}</strong> updated — <span class="badge ${d.status}">${d.status}</span>`,
+  ticket_closed: d => `Ticket <strong>#${d.id} ${esc(d.title)}</strong> closed`,
+  reminder_created: d => `<strong>${esc(d.username)}</strong> set reminder: ${esc(d.message)}`,
+  reminder_sent: d => `Reminder sent to <strong>${esc(d.username)}</strong>: ${esc(d.message)}`,
+  report_sent: d => `Daily report sent — ${d.ticket_count} open tickets`,
+};
+
+async function loadActivity() {
+  const res = await fetch(API + '/api/activity');
+  const items = await res.json();
+
+  if (!items.length) {
+    document.getElementById('activity-feed').innerHTML = '<div class="empty">No activity yet</div>';
+    return;
+  }
+
+  document.getElementById('activity-feed').innerHTML = `
+    <div class="activity-list">${items.map(a => `
+      <div class="activity-item">
+        <div class="activity-icon ${a.type}">${activityIcons[a.type] || '?'}</div>
+        <div class="activity-text">${(activityLabels[a.type] || (() => a.type))(a.data)}</div>
+        <div class="activity-time">${ago(a.time)}</div>
+      </div>`).join('')}
+    </div>`;
+}
+
+// ── Team ────────────────────────────────
+async function loadTeam() {
+  const res = await fetch(API + '/api/team');
+  const members = await res.json();
+
+  if (!members.length) {
+    document.getElementById('team-grid').innerHTML = '<div class="empty">No team data yet</div>';
+    return;
+  }
+
+  document.getElementById('team-grid').innerHTML = `
+    <div class="team-grid">${members.map(m => `
+      <div class="team-card">
+        <h3>${esc(m.name)}</h3>
+        <div class="team-stats">
+          <div class="team-stat"><strong style="color:var(--yellow)">${m.open}</strong> open</div>
+          <div class="team-stat"><strong style="color:var(--green)">${m.closed}</strong> closed</div>
+          <div class="team-stat"><strong style="color:var(--red)">${m.urgent}</strong> urgent</div>
+          <div class="team-stat"><strong>${m.total}</strong> total</div>
+        </div>
+      </div>`).join('')}
+    </div>`;
+}
+
+// ── Tabs ────────────────────────────────
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Helpers ─────────────────────────────
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function ago(ts) {
+  const diff = Math.floor(Date.now() / 1000) - ts;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function fmtDate(ts) {
+  return new Date(ts * 1000).toLocaleString('en-US', {
+    timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
+// Auto-refresh every 30s
+setInterval(loadAll, 30000);
+
+// Check if already logged in
+checkAuth();
+</script>
+</body>
+</html>

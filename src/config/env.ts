@@ -42,6 +42,10 @@ const envSchema = z.object({
   // Company
   COMPANY_NAME: z.string().default('My Team'),
 
+  // Dashboard
+  DASHBOARD_PASSWORD: z.string().optional(),
+  DASHBOARD_PORT:     z.coerce.number().default(3000),
+
   // App
   NODE_ENV:  z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),
