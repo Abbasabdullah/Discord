@@ -4,6 +4,7 @@ import fastifyCookie from '@fastify/cookie';
 import * as path from 'path';
 import { env } from '../config/env';
 import { getSqlite } from '../db/index';
+import { TEAM_MEMBERS } from '../utils/team';
 
 const COOKIE_NAME = 'dash_auth';
 const COOKIE_SECRET = 'task-advisor-dash-2024';
@@ -76,7 +77,7 @@ export async function startDashboard() {
   // ── GET /api/tickets ───────────────────────────────────────
   app.get('/api/tickets', async (req) => {
     const db = getSqlite();
-    const { status, priority } = req.query as { status?: string; priority?: string };
+    const { status, priority, assignee } = req.query as { status?: string; priority?: string; assignee?: string };
 
     let query = `SELECT * FROM tickets WHERE 1=1`;
     const params: string[] = [];
@@ -88,6 +89,10 @@ export async function startDashboard() {
     if (priority && priority !== 'all') {
       query += ` AND priority = ?`;
       params.push(priority);
+    }
+    if (assignee && assignee !== 'all') {
+      query += ` AND assigned_to = ?`;
+      params.push(assignee);
     }
 
     query += ` ORDER BY created_at DESC LIMIT 100`;
@@ -159,18 +164,30 @@ export async function startDashboard() {
   // ── GET /api/team ──────────────────────────────────────────
   app.get('/api/team', async () => {
     const db = getSqlite();
-    const members = db.prepare(`
+
+    // Get ticket stats grouped by assigned_to (canonical names)
+    const rows = db.prepare(`
       SELECT
-        COALESCE(assigned_to, created_by) as name,
+        assigned_to as name,
         COUNT(*) as total,
         SUM(CASE WHEN status != 'closed' THEN 1 ELSE 0 END) as open,
         SUM(CASE WHEN status = 'closed' THEN 1 ELSE 0 END) as closed,
         SUM(CASE WHEN priority = 'urgent' AND status != 'closed' THEN 1 ELSE 0 END) as urgent
       FROM tickets
-      GROUP BY COALESCE(assigned_to, created_by)
-      ORDER BY open DESC
-    `).all();
-    return members;
+      WHERE assigned_to IS NOT NULL
+      GROUP BY assigned_to
+    `).all() as any[];
+
+    const statsMap = new Map(rows.map(r => [r.name, r]));
+
+    // Always return all 4 team members, zero-fill if no tickets yet
+    return TEAM_MEMBERS.map(name => ({
+      name,
+      total:  statsMap.get(name)?.total  ?? 0,
+      open:   statsMap.get(name)?.open   ?? 0,
+      closed: statsMap.get(name)?.closed ?? 0,
+      urgent: statsMap.get(name)?.urgent ?? 0,
+    }));
   });
 
   // ── Start ──────────────────────────────────────────────────

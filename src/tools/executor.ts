@@ -1,5 +1,6 @@
 import * as ticketService from '../tickets/ticket.service';
 import * as reminderService from '../tickets/reminder.service';
+import { normalizeAssignee } from '../utils/team';
 import type { Ticket } from '../db/schema';
 
 interface ToolInput {
@@ -26,7 +27,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           title: input.title,
           description: input.description ?? input.title,
           priority: input.priority,
-          assignedTo: input.assigned_to,
+          assignedTo: normalizeAssignee(input.assigned_to),
           createdBy: callerPhone,
         });
         return JSON.stringify({ ticket_id: ticket.id, message: `Ticket #${ticket.id} created successfully`, ticket });
@@ -50,7 +51,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
         const ticket = ticketService.updateTicket(input.ticket_id, {
           status: input.status,
           priority: input.priority,
-          assignedTo: input.assigned_to,
+          assignedTo: normalizeAssignee(input.assigned_to),
           description: input.description,
         });
         if (!ticket) {

@@ -217,6 +217,13 @@
         <option value="medium">Medium</option>
         <option value="low">Low</option>
       </select>
+      <select id="filter-assignee" onchange="loadTickets()">
+        <option value="all">All Assignees</option>
+        <option value="Hasan">Hasan</option>
+        <option value="Hussain">Hussain</option>
+        <option value="Abbas">Abbas</option>
+        <option value="Anas">Anas</option>
+      </select>
     </div>
     <div class="refresh-bar">
       <span id="tickets-count"></span>
@@ -303,7 +310,8 @@ async function loadStats() {
 async function loadTickets() {
   const status = document.getElementById('filter-status').value;
   const priority = document.getElementById('filter-priority').value;
-  const res = await fetch(API + `/api/tickets?status=${status}&priority=${priority}`);
+  const assignee = document.getElementById('filter-assignee').value;
+  const res = await fetch(API + `/api/tickets?status=${status}&priority=${priority}&assignee=${assignee}`);
   const tickets = await res.json();
   document.getElementById('tickets-count').textContent = `${tickets.length} tickets`;
 

@@ -17,6 +17,12 @@ export function getSystemPrompt(username?: string, memory?: string): string {
 - Calculate the timestamp using today's date shown below — e.g. "next Sunday" = find the next Sunday from today
 - Confirm with the exact date/time after setting it
 
+## Team Members
+The team has exactly 4 members: **Hasan**, **Hussain**, **Abbas**, **Anas**
+- When assigning tickets, always use one of these exact names
+- If someone says "assign to me" or similar, use their Discord username and match it to the closest team member name
+- If someone says "assign to hasan" / "hussain" / "Abbas" / "Anas" — always use the canonical capitalization above
+
 ## Critical Rules
 - NEVER rely on memory for ticket data — always use tools to get fresh data
 - When asked about tasks/tickets → ALWAYS call list_tickets or get_ticket first
