@@ -37,10 +37,13 @@ export function startReportScheduler() {
     }
   });
 
-  // ── 9 AM Morning: Joke + Daily Report ────────────────────────
-  console.log(`📅 Morning (joke + report): "0 9 * * *" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 9 * * *', async () => {
-    console.log('\n🌅 Sending morning joke + report...');
+  // ── 9 AM Daily (Sat–Thu): Joke + Tasks Briefing + Report ─────
+  // Friday is a day off in Bahrain — skip Friday (5)
+  console.log(`📅 Morning briefing (Sat–Thu): "0 9 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 9 * * 0-4,6', async () => {
+    console.log('\n🌅 Sending morning briefing...');
+
+    // Joke
     try {
       const joke = await generateJoke();
       await sendToAIChannel({ content: `**Good morning! 🌞**\n\n${joke}` });
@@ -48,6 +51,57 @@ export function startReportScheduler() {
       console.error('❌ Failed to send morning joke:', err);
     }
 
+    // Daily tasks briefing — grouped by team member
+    try {
+      const sqlite = getSqlite();
+      const members = ['Hasan', 'Hussain', 'Abbas', 'Anas'];
+      const allOpen = sqlite.prepare(`
+        SELECT id, title, priority, assigned_to, project FROM tickets
+        WHERE status != 'closed' ORDER BY assigned_to, priority DESC
+      `).all() as any[];
+
+      const byMember: Record<string, any[]> = {};
+      const unassigned: any[] = [];
+      for (const t of allOpen) {
+        if (t.assigned_to && members.includes(t.assigned_to)) {
+          if (!byMember[t.assigned_to]) byMember[t.assigned_to] = [];
+          byMember[t.assigned_to].push(t);
+        } else if (!t.assigned_to) {
+          unassigned.push(t);
+        }
+      }
+
+      const prioEmoji: Record<string, string> = { urgent: '🚨', high: '🟧', medium: '🟩', low: '🟦' };
+      let msg = `📋 **Today's Tasks — ${new Date().toLocaleDateString('en-US', { timeZone: env.REPORT_TIMEZONE, weekday: 'long', month: 'short', day: 'numeric' })}**\n`;
+
+      for (const name of members) {
+        const tasks = byMember[name] ?? [];
+        msg += `\n**👤 ${name}** (${tasks.length} open)\n`;
+        if (tasks.length === 0) {
+          msg += `• No open tasks 🎉\n`;
+        } else {
+          for (const t of tasks.slice(0, 8)) {
+            const proj = t.project ? ` [${t.project}]` : '';
+            msg += `• ${prioEmoji[t.priority] ?? '•'} #${t.id} ${t.title}${proj}\n`;
+          }
+          if (tasks.length > 8) msg += `• _…and ${tasks.length - 8} more_\n`;
+        }
+      }
+
+      if (unassigned.length > 0) {
+        msg += `\n**⚠️ Unassigned (${unassigned.length})**\n`;
+        for (const t of unassigned.slice(0, 5)) {
+          msg += `• #${t.id} ${t.title}\n`;
+        }
+        if (unassigned.length > 5) msg += `• _…and ${unassigned.length - 5} more_\n`;
+      }
+
+      await sendToAIChannel({ content: msg });
+    } catch (err) {
+      console.error('❌ Failed to send daily tasks briefing:', err);
+    }
+
+    // Report to report channel
     if (!env.DISCORD_REPORT_CHANNEL_ID) return;
     try {
       const { embed, count } = generateDailyReport();
@@ -60,9 +114,9 @@ export function startReportScheduler() {
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── 4 PM Task Registration Reminder ──────────────────────────
-  console.log(`📋 Task reminder: "0 16 * * *" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 16 * * *', async () => {
+  // ── 4 PM Task Registration Reminder (Sat–Thu only) ──────────
+  console.log(`📋 Task reminder: "0 16 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 16 * * 0-4,6', async () => {
     console.log('\n📋 Sending 4PM task reminder...');
     try {
       await sendToAIChannel({
@@ -102,10 +156,10 @@ export function startReportScheduler() {
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Monday 8 AM: Weekly standup report ───────────────────────
-  console.log(`📋 Monday standup: "0 8 * * 1" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 8 * * 1', async () => {
-    console.log('\n📋 Posting Monday standup...');
+  // ── Saturday 8 AM: Weekly standup report (Bahrain week starts Sat) ──
+  console.log(`📋 Saturday standup: "0 8 * * 6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 8 * * 6', async () => {
+    console.log('\n📋 Posting Saturday standup...');
     try {
       const sqlite = getSqlite();
       const lastWeekTs = Math.floor(Date.now() / 1000) - 7 * 86400;
@@ -128,7 +182,7 @@ export function startReportScheduler() {
         SELECT COUNT(*) as count FROM tickets WHERE assigned_to IS NULL AND status != 'closed'
       `).get() as any;
 
-      let msg = `📋 **Good morning team! Monday standup** 🌅\n\n**Open Tasks by Member:**\n`;
+      let msg = `📋 **Good morning team! Saturday standup — new week starts now!** 🌅\n\n**Open Tasks by Member:**\n`;
       for (const row of openByMember) {
         msg += `👤 **${row.assigned_to}** — ${row.count} open\n`;
       }
@@ -175,10 +229,10 @@ export function startReportScheduler() {
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Thursday 4 PM: End-of-week sales push ────────────────────
-  console.log(`💰 Thursday sales push: "0 16 * * 4" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 16 * * 4', async () => {
-    console.log('\n💰 Thursday sales push...');
+  // ── Wednesday 4 PM: Mid-week sales check (2 days left) ──────
+  console.log(`💰 Wednesday sales push: "0 16 * * 3" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 16 * * 3', async () => {
+    console.log('\n💰 Wednesday sales push...');
     try {
       const target = getCurrentTarget();
       if (!target) return;
@@ -186,24 +240,24 @@ export function startReportScheduler() {
       const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
       let msg = '';
       if (pct >= 100) {
-        msg = `🎉 **SALES TARGET SMASHED!** You're at ${pct}% — ${target.currentAmount} ${target.currency} vs target of ${target.targetAmount}! Absolute legends! 🏆`;
+        msg = `🎉 **SALES TARGET SMASHED!** ${pct}% — ${target.currentAmount} ${target.currency} vs target of ${target.targetAmount}! Incredible work with 2 days still left! 🏆`;
       } else if (pct >= 75) {
-        msg = `🔥 **Sales Check — 2 days left!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\nOnly **${gap} ${target.currency}** to go — you are SO close! One or two more deals and it's done! 💪`;
+        msg = `🔥 **Sales Check — 2 days left!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\nJust **${gap} ${target.currency}** to close — you're SO close! Let's finish strong! 💪`;
       } else if (pct >= 50) {
-        msg = `⚡ **Sales Check — Let's push!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** gap — 2 days left. Every conversation counts! 🚀`;
+        msg = `⚡ **Sales Check — Push time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** gap with Wed + Thu left. Every conversation counts! 🚀`;
       } else {
-        msg = `💪 **Sales Check — Sprint time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** remaining — Thursday + Friday are power days. Who's got a hot lead? Let's close! 🔥`;
+        msg = `💪 **Sales Check — Time to sprint!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** remaining — Wednesday afternoon + all of Thursday. Big gap = big opportunity. Who's got a hot lead? 🔥`;
       }
       await sendToAIChannel({ content: msg });
     } catch (err) {
-      console.error('❌ Thursday sales push error:', err);
+      console.error('❌ Wednesday sales push error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Friday 1 PM: Final day push ───────────────────────────────
-  console.log(`💰 Friday final push: "0 13 * * 5" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 13 * * 5', async () => {
-    console.log('\n💰 Friday final push...');
+  // ── Thursday 1 PM: Final day of the work week push ───────────
+  console.log(`💰 Thursday final push: "0 13 * * 4" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 13 * * 4', async () => {
+    console.log('\n💰 Thursday final push...');
     try {
       const target = getCurrentTarget();
       if (!target) return;
@@ -211,13 +265,13 @@ export function startReportScheduler() {
       const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
       let msg = '';
       if (pct >= 100) {
-        msg = `🏆 **GOAL ACHIEVED!** What a week — ${target.currentAmount} ${target.currency} smashed the ${target.targetAmount} target! You're an incredible team! 🎊`;
+        msg = `🏆 **GOAL ACHIEVED!** What a week — ${target.currentAmount} ${target.currency} smashed the ${target.targetAmount} target! Enjoy your weekend, legends! 🎊`;
       } else {
-        msg = `🚨 **FINAL FRIDAY PUSH!**\n\nAt ${pct}% — **${gap} ${target.currency}** remaining\n\nThis is it team! Every call, every follow-up, every proposal sent TODAY counts. Who's closing something right now? Let's end the week strong! 🔥💪`;
+        msg = `🚨 **LAST DAY — THURSDAY FINAL PUSH!**\n\nAt **${pct}%** — **${gap} ${target.currency}** remaining\n\nThis is it! Tomorrow is Friday (off). Every call, every proposal, every follow-up you do in the next few hours counts. Let's close this week strong! 🔥💪`;
       }
       await sendToAIChannel({ content: msg });
     } catch (err) {
-      console.error('❌ Friday push error:', err);
+      console.error('❌ Thursday final push error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 }

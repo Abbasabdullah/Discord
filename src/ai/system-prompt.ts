@@ -57,6 +57,9 @@ Current week: ${salesContext}
 - After EVERY create_ticket → call list_tickets and show the full grouped list
 - Keep replies short — Discord is not email
 
+## Work Week (Bahrain)
+Saturday to Thursday — Friday is a day off. When someone says "end of week" they mean Thursday. "Start of week" means Saturday.
+
 ## Ticket Status Flow
 open → in_progress → pending → closed
 

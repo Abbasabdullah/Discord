@@ -11,26 +11,28 @@ export interface SalesTarget {
   createdAt: number;
 }
 
-/** Returns Monday 00:00:00 and Sunday 23:59:59 unix timestamps in Bahrain time */
+/** Returns Saturday 00:00:00 and Thursday 23:59:59 unix timestamps in Bahrain time (Bahrain work week) */
 export function getWeekBounds(date: Date = new Date()): { weekStart: number; weekEnd: number } {
   // Work in Bahrain timezone (UTC+3)
   const bhOffsetMs = 3 * 60 * 60 * 1000;
   const localDate  = new Date(date.getTime() + bhOffsetMs);
 
-  const day        = localDate.getUTCDay(); // 0=Sun, 1=Mon
-  const daysToMon  = day === 0 ? -6 : 1 - day;
+  const day = localDate.getUTCDay(); // 0=Sun,1=Mon,2=Tue,3=Wed,4=Thu,5=Fri,6=Sat
 
-  const monday = new Date(localDate);
-  monday.setUTCDate(localDate.getUTCDate() + daysToMon);
-  monday.setUTCHours(0, 0, 0, 0);
+  // Days back to Saturday: Sat=0, Sun=1, Mon=2, Tue=3, Wed=4, Thu=5, Fri=6
+  const daysToSat = day === 6 ? 0 : day + 1;
 
-  const sunday = new Date(monday);
-  sunday.setUTCDate(monday.getUTCDate() + 6);
-  sunday.setUTCHours(23, 59, 59, 0);
+  const saturday = new Date(localDate);
+  saturday.setUTCDate(localDate.getUTCDate() - daysToSat);
+  saturday.setUTCHours(0, 0, 0, 0);
+
+  const thursday = new Date(saturday);
+  thursday.setUTCDate(saturday.getUTCDate() + 5); // Sat + 5 = Thu
+  thursday.setUTCHours(23, 59, 59, 0);
 
   return {
-    weekStart: Math.floor((monday.getTime() - bhOffsetMs) / 1000),
-    weekEnd:   Math.floor((sunday.getTime() - bhOffsetMs) / 1000),
+    weekStart: Math.floor((saturday.getTime() - bhOffsetMs) / 1000),
+    weekEnd:   Math.floor((thursday.getTime() - bhOffsetMs) / 1000),
   };
 }
 
