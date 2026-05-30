@@ -80,7 +80,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
           project: input.project,
-          limit: input.limit ?? 50,
+          limit: input.limit ?? 20,
         });
         return JSON.stringify({ count: tickets.length, tickets: tickets.map(summarize) });
       }
@@ -210,12 +210,11 @@ function daysSince(unixTimestamp: number): number {
 
 function summarize(ticket: Ticket) {
   return {
-    id: ticket.id,
-    title: ticket.title,
-    status: ticket.status,
-    priority: ticket.priority,
+    id:          ticket.id,
+    title:       ticket.title,
+    status:      ticket.status,
+    priority:    ticket.priority,
     assigned_to: ticket.assignedTo,
-    project: ticket.project,
-    age_days: daysSince(ticket.createdAt),
+    project:     ticket.project ?? null,
   };
 }

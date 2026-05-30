@@ -88,9 +88,10 @@ export async function handleMessage(userId: string, text: string, username?: str
 
   saveUserText(userId, text);
 
-  let loopCount = 0;
-  const MAX_LOOPS = 10;
+  let loopCount    = 0;
+  const MAX_LOOPS  = 10;
   let currentMessage: string | any[] = text;
+  let madeToolCall = false;
 
   while (loopCount < MAX_LOOPS) {
     loopCount++;
@@ -100,6 +101,7 @@ export async function handleMessage(userId: string, text: string, username?: str
     const functionCalls = response.functionCalls();
 
     if (functionCalls && functionCalls.length > 0) {
+      madeToolCall = true;
       const responseParts = functionCalls.map(fc => ({
         functionResponse: {
           name:     fc.name,
@@ -111,13 +113,21 @@ export async function handleMessage(userId: string, text: string, username?: str
     }
 
     const finalText = response.text().trim();
-    saveModelText(userId, finalText);
-    trimHistory(userId);
 
-    // Update memory in background (don't await — keep response fast)
-    updateUserMemory(userId, username ?? userId, text, finalText).catch(console.error);
+    // Gemini sometimes returns empty text after a tool call (large payloads).
+    // Nudge it once to format and display the results.
+    if (!finalText && madeToolCall && loopCount < MAX_LOOPS) {
+      currentMessage = 'Now format and display the results clearly to the user, grouped by team member as instructed.';
+      madeToolCall = false; // prevent infinite nudge loop
+      continue;
+    }
 
-    return finalText || "I'm here to help! What would you like to do?";
+    if (finalText) {
+      saveModelText(userId, finalText);
+      trimHistory(userId);
+      updateUserMemory(userId, username ?? userId, text, finalText).catch(console.error);
+      return finalText;
+    }
   }
 
   return '⚠️ Something went wrong. Please try again.';
