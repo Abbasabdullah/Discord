@@ -58,10 +58,16 @@ export function reportEmbed(tickets: Ticket[], date: string, companyName: string
   const in_progress = tickets.filter(t => t.status === 'in_progress');
   const pending     = tickets.filter(t => t.status === 'pending');
 
-  const fmt = (list: Ticket[]) =>
-    list.length === 0
-      ? '_None_'
-      : list.map(t => `• **#${t.id}** ${t.title} — ${PRIORITY_EMOJI[t.priority] ?? t.priority}${t.assignedTo ? ` @${t.assignedTo}` : ''}`).join('\n');
+  const fmt = (list: Ticket[]) => {
+    if (list.length === 0) return '_None_';
+    const lines = list.map(t => `• **#${t.id}** ${t.title} — ${PRIORITY_EMOJI[t.priority] ?? t.priority}${t.assignedTo ? ` @${t.assignedTo}` : ''}`);
+    let result = '';
+    for (const line of lines) {
+      if ((result + '\n' + line).length > 1000) { result += `\n_…and ${list.length - result.split('\n').length} more_`; break; }
+      result += (result ? '\n' : '') + line;
+    }
+    return result;
+  };
 
   const embed = new EmbedBuilder()
     .setColor(tickets.length === 0 ? Colors.Green : Colors.Blue)

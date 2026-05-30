@@ -10,6 +10,7 @@ export function createTicket(input: CreateTicketInput): Ticket {
     description: input.description,
     priority: input.priority ?? 'medium',
     assignedTo: input.assignedTo ?? null,
+    project: input.project ?? null,
     createdBy: input.createdBy,
     status: 'open',
   }).returning().get();
@@ -30,6 +31,8 @@ export function updateTicket(id: number, input: UpdateTicketInput): Ticket | nul
   if (input.priority !== undefined) updates.priority = input.priority;
   if (input.assignedTo !== undefined) updates.assignedTo = input.assignedTo;
   if (input.description !== undefined) updates.description = input.description;
+
+  if (input.project !== undefined) updates.project = input.project;
 
   if (input.status === 'closed') {
     updates.closedAt = Math.floor(Date.now() / 1000);
@@ -60,6 +63,10 @@ export function listTickets(filters: TicketFilters = {}): Ticket[] {
   if (filters.assignedTo) {
     query += ` AND LOWER(assigned_to) = LOWER(?)`;
     params.push(filters.assignedTo);
+  }
+  if (filters.project) {
+    query += ` AND LOWER(project) = LOWER(?)`;
+    params.push(filters.project);
   }
 
   query += ` ORDER BY created_at DESC`;
@@ -94,6 +101,7 @@ function mapRow(row: any): Ticket {
     priority: row.priority,
     createdBy: row.created_by,
     assignedTo: row.assigned_to ?? null,
+    project: row.project ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     closedAt: row.closed_at ?? null,

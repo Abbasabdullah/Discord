@@ -5,6 +5,8 @@ import * as path from 'path';
 import { env } from '../config/env';
 import { getSqlite } from '../db/index';
 import { TEAM_MEMBERS } from '../utils/team';
+import { getCurrentTarget, getTargetHistory } from '../sales/sales.service';
+import { getDecisions } from '../ai/decisions';
 
 const COOKIE_NAME = 'dash_auth';
 const COOKIE_SECRET = 'task-advisor-dash-2024';
@@ -188,6 +190,19 @@ export async function startDashboard() {
       closed: statsMap.get(name)?.closed ?? 0,
       urgent: statsMap.get(name)?.urgent ?? 0,
     }));
+  });
+
+  // ── GET /api/sales ─────────────────────────────────────────
+  app.get('/api/sales', async () => {
+    const current = getCurrentTarget();
+    const history = getTargetHistory(8);
+    return { current, history };
+  });
+
+  // ── GET /api/decisions ─────────────────────────────────────
+  app.get('/api/decisions', async (req) => {
+    const { search } = req.query as { search?: string };
+    return getDecisions(50, search);
   });
 
   // ── Start ──────────────────────────────────────────────────

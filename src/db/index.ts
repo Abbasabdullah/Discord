@@ -68,6 +68,30 @@ export function runMigrations() {
       updated_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
   `);
+
+  // Project field on tickets (safe — ALTER TABLE is idempotent via try/catch)
+  try { sqlite.exec(`ALTER TABLE tickets ADD COLUMN project TEXT`); } catch { /* already exists */ }
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sales_targets (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_start     INTEGER NOT NULL,
+      week_end       INTEGER NOT NULL,
+      target_amount  REAL NOT NULL,
+      current_amount REAL NOT NULL DEFAULT 0,
+      currency       TEXT NOT NULL DEFAULT 'BHD',
+      notes          TEXT,
+      created_at     INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS decisions (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      content    TEXT NOT NULL,
+      context    TEXT,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
 }
 
 export const getSqlite = (): DatabaseType => sqlite;

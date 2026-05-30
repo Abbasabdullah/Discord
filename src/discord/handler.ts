@@ -7,7 +7,9 @@ import {
 } from 'discord.js';
 import * as ticketService from '../tickets/ticket.service';
 import { handleMessage } from '../ai/conversation';
-import { analyzeVoiceNote } from '../ai/voice';
+import { analyzeVoiceNote, extractMeetingData } from '../ai/voice';
+import { logDecision } from '../ai/decisions';
+import { normalizeAssignee } from '../utils/team';
 import { ticketEmbed, listEmbed } from './embeds';
 import { ticketButtons } from './commands';
 import { generateDailyReport } from '../reports/report.service';
@@ -68,7 +70,47 @@ export function registerHandlers(client: Client) {
       if ('sendTyping' in message.channel) await message.channel.sendTyping();
       try {
         const analysis = await analyzeVoiceNote(audioAttachment.url, username);
-        await message.reply(`🎙️ **Voice Note Analysis**\n\n${analysis}`);
+        let reply = `🎙️ **Voice Note Analysis**\n\n${analysis}`;
+
+        // Second pass: extract tasks and decisions automatically
+        try {
+          const meetingData = await extractMeetingData(analysis);
+
+          if (meetingData.tasks.length > 0) {
+            const createdLines: string[] = [];
+            for (const task of meetingData.tasks) {
+              const ticket = ticketService.createTicket({
+                title:       task.title,
+                description: task.title,
+                priority:    task.priority ?? 'medium',
+                assignedTo:  normalizeAssignee(task.assignee),
+                project:     task.project,
+                createdBy:   username,
+              });
+              const assignStr = ticket.assignedTo ? ` → ${ticket.assignedTo}` : '';
+              const projStr   = ticket.project    ? ` [${ticket.project}]`     : '';
+              createdLines.push(`• #${ticket.id} ${ticket.title}${assignStr}${projStr}`);
+            }
+            reply += `\n\n✅ **Auto-created ${meetingData.tasks.length} task(s):**\n${createdLines.join('\n')}`;
+          }
+
+          if (meetingData.decisions.length > 0) {
+            for (const d of meetingData.decisions) {
+              logDecision(d.content, username, d.context);
+            }
+            reply += `\n\n📝 **Logged ${meetingData.decisions.length} decision(s)**`;
+          }
+        } catch (extractErr) {
+          console.error('Task extraction error:', extractErr);
+          // Don't fail the whole response — analysis was already good
+        }
+
+        // Split if over Discord's 2000 char limit
+        if (reply.length <= 2000) {
+          await message.reply(reply);
+        } else {
+          await message.reply(reply.slice(0, 1997) + '…');
+        }
       } catch (err) {
         console.error('Voice analysis error:', err);
         await message.reply('⚠️ Failed to analyze the voice note. Please try again.');

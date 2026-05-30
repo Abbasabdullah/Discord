@@ -1,6 +1,9 @@
 import * as ticketService from '../tickets/ticket.service';
 import * as reminderService from '../tickets/reminder.service';
+import * as salesService from '../sales/sales.service';
+import * as decisionsService from '../ai/decisions';
 import { normalizeAssignee } from '../utils/team';
+import { getSqlite } from '../db/index';
 import type { Ticket } from '../db/schema';
 
 interface ToolInput {
@@ -10,10 +13,19 @@ interface ToolInput {
   priority?: 'low' | 'medium' | 'high' | 'urgent';
   assigned_to?: string;
   status?: 'open' | 'in_progress' | 'pending' | 'closed';
+  project?: string;
   limit?: number;
   resolution_note?: string;
   message?: string;
   remind_at?: number;
+  // sales
+  target_amount?: number;
+  current_amount?: number;
+  amount?: number;
+  // decisions
+  content?: string;
+  context?: string;
+  search?: string;
 }
 
 export function executeTool(toolName: string, input: ToolInput, callerPhone: string): string {
@@ -28,6 +40,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           description: input.description ?? input.title,
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
+          project: input.project,
           createdBy: callerPhone,
         });
         return JSON.stringify({ ticket_id: ticket.id, message: `Ticket #${ticket.id} created successfully`, ticket });
@@ -53,6 +66,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
           description: input.description,
+          project: input.project,
         });
         if (!ticket) {
           return JSON.stringify({ error: `Ticket #${input.ticket_id} not found` });
@@ -65,7 +79,8 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           status: input.status,
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
-          limit: input.limit ?? 20,
+          project: input.project,
+          limit: input.limit ?? 50,
         });
         return JSON.stringify({ count: tickets.length, tickets: tickets.map(summarize) });
       }
@@ -107,6 +122,79 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
         });
       }
 
+      case 'set_sales_target': {
+        if (input.target_amount === undefined) return JSON.stringify({ error: 'target_amount is required' });
+        const target = salesService.setWeeklyTarget(input.target_amount, input.context);
+        const weekStr = new Date(target.weekStart * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' });
+        const weekEnd = new Date(target.weekEnd * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' });
+        return JSON.stringify({ success: true, target: target.targetAmount, currency: target.currency, week: `${weekStr} – ${weekEnd}` });
+      }
+
+      case 'update_sales_pipeline': {
+        if (input.current_amount === undefined) return JSON.stringify({ error: 'current_amount is required' });
+        const target = salesService.updatePipeline(input.current_amount);
+        if (!target) return JSON.stringify({ error: 'No sales target set for this week. Set one first with set_sales_target.' });
+        const gap = target.targetAmount - target.currentAmount;
+        const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
+        return JSON.stringify({ success: true, target: target.targetAmount, current: target.currentAmount, gap, percentage: pct, currency: target.currency });
+      }
+
+      case 'add_to_pipeline': {
+        if (input.amount === undefined) return JSON.stringify({ error: 'amount is required' });
+        const target = salesService.addToPipeline(input.amount);
+        if (!target) return JSON.stringify({ error: 'No sales target set for this week.' });
+        const gap = target.targetAmount - target.currentAmount;
+        const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
+        return JSON.stringify({ success: true, added: input.amount, total: target.currentAmount, target: target.targetAmount, gap, percentage: pct, currency: target.currency });
+      }
+
+      case 'get_sales_status': {
+        const target = salesService.getCurrentTarget();
+        if (!target) return JSON.stringify({ status: 'no_target', message: 'No sales target set for this week. Ask the team to set one.' });
+        const gap = target.targetAmount - target.currentAmount;
+        const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
+        const weekEnd = new Date(target.weekEnd * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'short', day: 'numeric' });
+        const history = salesService.getTargetHistory(4).slice(1).map(h => ({
+          week: new Date(h.weekStart * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+          target: h.targetAmount, achieved: h.currentAmount,
+          result: Math.round((h.currentAmount / h.targetAmount) * 100) + '%',
+        }));
+        return JSON.stringify({ target: target.targetAmount, current: target.currentAmount, gap, percentage: pct, currency: target.currency, week_ends: weekEnd, past_weeks: history });
+      }
+
+      case 'log_decision': {
+        if (!input.content) return JSON.stringify({ error: 'content is required' });
+        const decision = decisionsService.logDecision(input.content, callerPhone, input.context);
+        return JSON.stringify({ success: true, decision_id: decision.id, saved: decision.content });
+      }
+
+      case 'get_decisions': {
+        const decisions = decisionsService.getDecisions(input.limit ?? 10, input.search);
+        return JSON.stringify({
+          count: decisions.length,
+          decisions: decisions.map(d => ({
+            id: d.id,
+            content: d.content,
+            context: d.context,
+            date: new Date(d.createdAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric', year: 'numeric' }),
+          })),
+        });
+      }
+
+      case 'get_workload': {
+        const db = getSqlite();
+        const rows = db.prepare(`
+          SELECT assigned_to as name, COUNT(*) as open_tasks
+          FROM tickets WHERE status != 'closed' AND assigned_to IS NOT NULL
+          GROUP BY assigned_to
+        `).all() as any[];
+        const members = ['Hasan', 'Hussain', 'Abbas', 'Anas'];
+        const map = new Map(rows.map((r: any) => [r.name, r.open_tasks]));
+        const workload = members.map(name => ({ name, open_tasks: map.get(name) ?? 0 }))
+          .sort((a, b) => a.open_tasks - b.open_tasks);
+        return JSON.stringify({ workload, suggestion: `${workload[0].name} has the lightest load (${workload[0].open_tasks} open tasks)` });
+      }
+
       default:
         return JSON.stringify({ error: `Unknown tool: ${toolName}` });
     }
@@ -127,7 +215,7 @@ function summarize(ticket: Ticket) {
     status: ticket.status,
     priority: ticket.priority,
     assigned_to: ticket.assignedTo,
-    created_at: ticket.createdAt,
+    project: ticket.project,
     age_days: daysSince(ticket.createdAt),
   };
 }

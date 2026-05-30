@@ -1,4 +1,4 @@
-import { sqliteTable, integer, text } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, integer, text, real } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 
 export const tickets = sqliteTable('tickets', {
@@ -13,6 +13,7 @@ export const tickets = sqliteTable('tickets', {
                  .default('medium'),
   createdBy:   text('created_by').notNull(),
   assignedTo:  text('assigned_to'),
+  project:     text('project'),
   createdAt:   integer('created_at').notNull().default(sql`(unixepoch())`),
   updatedAt:   integer('updated_at').notNull().default(sql`(unixepoch())`),
   closedAt:    integer('closed_at'),
@@ -49,6 +50,25 @@ export const userMemories = sqliteTable('user_memories', {
   username:  text('username'),
   memory:    text('memory').notNull().default(''),
   updatedAt: integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const salesTargets = sqliteTable('sales_targets', {
+  id:            integer('id').primaryKey({ autoIncrement: true }),
+  weekStart:     integer('week_start').notNull(),
+  weekEnd:       integer('week_end').notNull(),
+  targetAmount:  real('target_amount').notNull(),
+  currentAmount: real('current_amount').notNull().default(0),
+  currency:      text('currency').notNull().default('BHD'),
+  notes:         text('notes'),
+  createdAt:     integer('created_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const decisions = sqliteTable('decisions', {
+  id:        integer('id').primaryKey({ autoIncrement: true }),
+  content:   text('content').notNull(),
+  context:   text('context'),
+  createdBy: text('created_by').notNull(),
+  createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
 export type Ticket = typeof tickets.$inferSelect;

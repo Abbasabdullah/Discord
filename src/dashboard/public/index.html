@@ -198,6 +198,8 @@
     <button class="tab" data-tab="reminders">Reminders</button>
     <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="team">Team</button>
+    <button class="tab" data-tab="sales">💰 Sales</button>
+    <button class="tab" data-tab="decisions">📝 Decisions</button>
   </div>
 
   <!-- Tickets -->
@@ -255,6 +257,21 @@
     </div>
     <div id="team-grid"></div>
   </div>
+
+  <!-- Sales -->
+  <div class="panel" id="panel-sales">
+    <div class="refresh-bar"><button onclick="loadSales()">Refresh</button></div>
+    <div id="sales-content"></div>
+  </div>
+
+  <!-- Decisions -->
+  <div class="panel" id="panel-decisions">
+    <div class="refresh-bar">
+      <input id="decision-search" placeholder="Search decisions..." style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;width:220px" oninput="loadDecisions()">
+      <button onclick="loadDecisions()">Refresh</button>
+    </div>
+    <div id="decisions-list"></div>
+  </div>
 </div>
 
 <script>
@@ -291,7 +308,7 @@ async function checkAuth() {
 }
 
 // ── Load All ────────────────────────────
-function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); }
+function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); loadSales(); loadDecisions(); }
 
 // ── Stats ───────────────────────────────
 async function loadStats() {
@@ -450,6 +467,82 @@ function fmtDate(ts) {
     timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });
+}
+
+// ── Sales ────────────────────────────────
+async function loadSales() {
+  const res = await fetch(API + '/api/sales');
+  const { current, history } = await res.json();
+  if (!current) {
+    document.getElementById('sales-content').innerHTML = '<div class="empty">No sales target set for this week.<br><br>Ask the bot: <strong>"set sales target 5000"</strong></div>';
+    return;
+  }
+  const pct     = Math.min(100, Math.round((current.current_amount / current.target_amount) * 100));
+  const gap     = (current.target_amount - current.current_amount).toFixed(0);
+  const barColor = pct >= 100 ? 'var(--green)' : pct >= 75 ? 'var(--yellow)' : 'var(--accent)';
+  const numColor = pct >= 100 ? 'var(--green)' : pct >= 75 ? 'var(--yellow)' : 'var(--orange)';
+  const weekEnd = new Date(current.week_end * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', weekday: 'long', month: 'short', day: 'numeric' });
+  const motivation = pct >= 100
+    ? '🏆 Target smashed! Incredible work!'
+    : pct >= 75
+    ? `🔥 Almost there! Just ${gap} ${current.currency} to go!`
+    : pct >= 50
+    ? `⚡ Halfway there! ${gap} ${current.currency} left — let's go!`
+    : `💪 ${gap} ${current.currency} to close — every deal counts!`;
+
+  let html = `
+    <div class="stat-card" style="margin-bottom:16px;text-align:left;padding:24px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">
+        <div>
+          <div style="font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">This Week's Pipeline</div>
+          <div style="font-size:36px;font-weight:700;color:var(--accent)">${current.current_amount} <span style="font-size:18px;color:var(--muted)">${current.currency}</span></div>
+          <div style="color:var(--muted);font-size:14px;margin-top:2px">of <strong style="color:var(--text)">${current.target_amount} ${current.currency}</strong> target</div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-size:48px;font-weight:800;color:${numColor}">${pct}%</div>
+          <div style="font-size:12px;color:var(--muted)">ends ${weekEnd}</div>
+        </div>
+      </div>
+      <div style="background:var(--border);border-radius:6px;height:10px;overflow:hidden;margin-bottom:12px">
+        <div style="background:${barColor};height:100%;width:${pct}%;transition:width 0.5s;border-radius:6px"></div>
+      </div>
+      <div style="font-size:14px;color:var(--text)">${motivation}</div>
+    </div>`;
+
+  if (history && history.length > 1) {
+    html += `<table><thead><tr><th>Week of</th><th>Target</th><th>Achieved</th><th>%</th></tr></thead><tbody>`;
+    for (const h of history.slice(1)) {
+      const hp = Math.round((h.current_amount / h.target_amount) * 100);
+      const cls = hp >= 100 ? 'closed' : hp >= 75 ? 'open' : 'urgent';
+      const wk  = new Date(h.week_start * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' });
+      html += `<tr><td>${wk}</td><td>${h.target_amount} ${h.currency}</td><td>${h.current_amount} ${h.currency}</td><td><span class="badge ${cls}">${hp}%</span></td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  document.getElementById('sales-content').innerHTML = html;
+}
+
+// ── Decisions ────────────────────────────
+async function loadDecisions() {
+  const search = document.getElementById('decision-search')?.value || '';
+  const res = await fetch(API + `/api/decisions?search=${encodeURIComponent(search)}`);
+  const decisions = await res.json();
+  if (!decisions.length) {
+    document.getElementById('decisions-list').innerHTML = '<div class="empty">No decisions logged yet.<br><br>The bot auto-saves decisions from conversations and voice notes.</div>';
+    return;
+  }
+  document.getElementById('decisions-list').innerHTML = `
+    <div class="activity-list">${decisions.map(d => `
+      <div class="activity-item">
+        <div class="activity-icon reminder_created" style="font-size:16px;flex-shrink:0">📝</div>
+        <div class="activity-text">
+          <strong>${esc(d.content)}</strong>
+          ${d.context ? `<br><span>${esc(d.context)}</span>` : ''}
+        </div>
+        <div class="activity-time">${fmtDate(d.created_at)}</div>
+      </div>`).join('')}
+    </div>`;
 }
 
 // Auto-refresh every 30s
