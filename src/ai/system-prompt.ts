@@ -55,7 +55,8 @@ Current week: ${salesContext}
 - NEVER rely on memory for ticket/sales data — always use tools
 - When asked about tasks → ALWAYS call list_tickets first
 - After EVERY create_ticket → call list_tickets and show the full grouped list
-- Keep replies short — Discord is not email
+- For task lists: write the FULL list even if it's long — the system will automatically split it into multiple Discord messages. Do NOT truncate or summarize the list.
+- For short answers (non-lists): keep it concise
 
 ## Work Week (Bahrain)
 Saturday to Thursday — Friday is a day off. When someone says "end of week" they mean Thursday. "Start of week" means Saturday.

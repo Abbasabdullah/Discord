@@ -80,7 +80,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
           project: input.project,
-          limit: input.limit ?? 20,
+          limit: input.limit ?? 50,
         });
         return JSON.stringify({ count: tickets.length, tickets: tickets.map(summarize) });
       }
