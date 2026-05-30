@@ -160,6 +160,84 @@
 
   .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
 
+  /* ── Roadmap ─────────────────────────────── */
+  .roadmap-board { display: flex; gap: 16px; overflow-x: auto; }
+  .roadmap-col { flex: 1; min-width: 280px; }
+  .roadmap-col-header {
+    font-size: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 10px 16px; border-radius: 8px 8px 0 0; margin-bottom: 8px;
+  }
+  .roadmap-col-header.planned { background: rgba(99,102,241,0.15); color: var(--accent); }
+  .roadmap-col-header.in_progress { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .roadmap-col-header.done { background: rgba(34,197,94,0.15); color: var(--green); }
+
+  .roadmap-card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; margin-bottom: 8px; cursor: default;
+  }
+  .roadmap-card h4 { font-size: 14px; margin-bottom: 6px; }
+  .roadmap-card p { font-size: 13px; color: var(--muted); margin-bottom: 8px; line-height: 1.4; }
+  .roadmap-card .rm-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .roadmap-card .rm-attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .roadmap-card .rm-thumb {
+    width: 60px; height: 60px; border-radius: 6px; object-fit: cover; border: 1px solid var(--border); cursor: pointer;
+  }
+  .roadmap-card .rm-file {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+    border-radius: 6px; background: rgba(255,255,255,0.05); font-size: 12px; color: var(--muted);
+    text-decoration: none;
+  }
+  .roadmap-card .rm-file:hover { color: var(--text); }
+  .roadmap-card .rm-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .roadmap-card .rm-actions button, .roadmap-card .rm-actions select {
+    padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--card); color: var(--muted); font-size: 11px; cursor: pointer;
+  }
+  .roadmap-card .rm-actions button:hover { color: var(--text); border-color: var(--text); }
+
+  .rm-add-form {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px; margin-bottom: 16px;
+  }
+  .rm-add-form input, .rm-add-form textarea, .rm-add-form select {
+    width: 100%; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--text); font-size: 14px; margin-bottom: 10px; font-family: inherit;
+  }
+  .rm-add-form textarea { min-height: 70px; resize: vertical; }
+  .rm-add-form .rm-row { display: flex; gap: 10px; }
+  .rm-add-form .rm-row > * { flex: 1; }
+  .rm-add-form button[type="submit"] {
+    padding: 10px 24px; border-radius: 6px; border: none;
+    background: var(--accent); color: white; font-size: 14px; cursor: pointer; font-weight: 600;
+  }
+  .rm-add-form button[type="submit"]:hover { opacity: 0.9; }
+  .rm-add-form .file-drop {
+    border: 2px dashed var(--border); border-radius: 8px; padding: 16px; text-align: center;
+    color: var(--muted); font-size: 13px; margin-bottom: 10px; cursor: pointer; transition: border-color 0.2s;
+  }
+  .rm-add-form .file-drop:hover, .rm-add-form .file-drop.dragover { border-color: var(--accent); color: var(--accent); }
+  .rm-add-form .file-preview { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .rm-add-form .file-preview-item {
+    position: relative; width: 70px; height: 70px; border-radius: 6px; overflow: hidden; border: 1px solid var(--border);
+  }
+  .rm-add-form .file-preview-item img { width: 100%; height: 100%; object-fit: cover; }
+  .rm-add-form .file-preview-item .fp-name {
+    position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.7);
+    font-size: 9px; padding: 2px 4px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .rm-add-form .file-preview-item .fp-remove {
+    position: absolute; top: 2px; right: 2px; background: rgba(0,0,0,0.7); color: white;
+    border: none; border-radius: 50%; width: 18px; height: 18px; font-size: 11px; cursor: pointer; line-height: 1;
+  }
+
+  /* ── Lightbox ──────────────────────────── */
+  .lightbox {
+    display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.9); z-index: 1000; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .lightbox.active { display: flex; }
+  .lightbox img, .lightbox video { max-width: 90%; max-height: 90%; border-radius: 8px; }
+
   /* ── Refresh ─────────────────────────────── */
   .refresh-bar {
     display: flex; justify-content: flex-end; margin-bottom: 8px; gap: 8px; align-items: center;
@@ -200,6 +278,7 @@
     <button class="tab" data-tab="team">Team</button>
     <button class="tab" data-tab="sales">💰 Sales</button>
     <button class="tab" data-tab="decisions">📝 Decisions</button>
+    <button class="tab" data-tab="roadmap">🗺️ Roadmap</button>
   </div>
 
   <!-- Tickets -->
@@ -264,6 +343,44 @@
     <div id="sales-content"></div>
   </div>
 
+  <!-- Roadmap -->
+  <div class="panel" id="panel-roadmap">
+    <div class="rm-add-form" id="roadmap-form">
+      <h3 style="margin-bottom:12px;font-size:16px">Add to Roadmap</h3>
+      <input type="text" id="rm-title" placeholder="Feature / item title" required>
+      <textarea id="rm-desc" placeholder="Description (optional)"></textarea>
+      <div class="rm-row">
+        <select id="rm-priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="low">Low</option></select>
+        <select id="rm-category"><option value="">Category...</option><option value="Feature">Feature</option><option value="Bug Fix">Bug Fix</option><option value="Improvement">Improvement</option><option value="Design">Design</option><option value="Infrastructure">Infrastructure</option></select>
+        <input type="date" id="rm-target" style="color-scheme:dark" title="Target date (optional)">
+      </div>
+      <div class="file-drop" id="rm-file-drop" onclick="document.getElementById('rm-files').click()">
+        📎 Drop files here or click to upload<br><span style="font-size:11px">(screenshots, videos, designs — up to 50MB)</span>
+      </div>
+      <input type="file" id="rm-files" multiple accept="image/*,video/*,.pdf,.fig,.sketch" style="display:none" onchange="handleFileSelect(this.files)">
+      <div class="file-preview" id="rm-file-preview"></div>
+      <button type="submit" onclick="submitRoadmapItem()">Add Item</button>
+    </div>
+
+    <div class="filters" style="margin-bottom:12px">
+      <select id="rm-filter-status" onchange="loadRoadmap()">
+        <option value="all">All Status</option>
+        <option value="planned">Planned</option>
+        <option value="in_progress">In Progress</option>
+        <option value="done">Done</option>
+      </select>
+      <button onclick="loadRoadmap()" style="padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:13px">Refresh</button>
+    </div>
+
+    <div class="roadmap-board" id="roadmap-board"></div>
+  </div>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <img id="lightbox-img" src="" style="display:none">
+    <video id="lightbox-video" src="" controls style="display:none"></video>
+  </div>
+
   <!-- Decisions -->
   <div class="panel" id="panel-decisions">
     <div class="refresh-bar">
@@ -308,7 +425,7 @@ async function checkAuth() {
 }
 
 // ── Load All ────────────────────────────
-function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); loadSales(); loadDecisions(); }
+function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); loadSales(); loadDecisions(); loadRoadmap(); }
 
 // ── Stats ───────────────────────────────
 async function loadStats() {
@@ -543,6 +660,177 @@ async function loadDecisions() {
         <div class="activity-time">${fmtDate(d.created_at)}</div>
       </div>`).join('')}
     </div>`;
+}
+
+// ── Roadmap ──────────────────────────────
+let pendingFiles = [];
+
+function handleFileSelect(fileList) {
+  for (const f of fileList) pendingFiles.push(f);
+  renderFilePreviews();
+}
+
+function renderFilePreviews() {
+  const el = document.getElementById('rm-file-preview');
+  el.innerHTML = pendingFiles.map((f, i) => {
+    const isImg = f.type.startsWith('image/');
+    const thumb = isImg ? URL.createObjectURL(f) : '';
+    return `<div class="file-preview-item">
+      ${isImg ? `<img src="${thumb}">` : `<div style="display:flex;align-items:center;justify-content:center;height:100%;background:var(--bg);font-size:20px">${f.type.startsWith('video/') ? '🎬' : '📄'}</div>`}
+      <div class="fp-name">${esc(f.name)}</div>
+      <button class="fp-remove" onclick="event.stopPropagation();removePendingFile(${i})">×</button>
+    </div>`;
+  }).join('');
+}
+
+function removePendingFile(idx) { pendingFiles.splice(idx, 1); renderFilePreviews(); }
+
+// Drag & drop
+const dropZone = document.getElementById('rm-file-drop');
+if (dropZone) {
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFileSelect(e.dataTransfer.files); });
+}
+
+async function submitRoadmapItem() {
+  const title = document.getElementById('rm-title').value.trim();
+  if (!title) { alert('Title is required'); return; }
+
+  const fd = new FormData();
+  fd.append('title', title);
+  fd.append('description', document.getElementById('rm-desc').value.trim());
+  fd.append('priority', document.getElementById('rm-priority').value);
+  fd.append('category', document.getElementById('rm-category').value);
+  const targetDate = document.getElementById('rm-target').value;
+  if (targetDate) fd.append('target_date', String(Math.floor(new Date(targetDate).getTime() / 1000)));
+  fd.append('status', 'planned');
+  fd.append('created_by', 'dashboard');
+  for (const f of pendingFiles) fd.append('files', f);
+
+  const res = await fetch(API + '/api/roadmap', { method: 'POST', body: fd });
+  if (res.ok) {
+    document.getElementById('rm-title').value = '';
+    document.getElementById('rm-desc').value = '';
+    document.getElementById('rm-priority').value = 'medium';
+    document.getElementById('rm-category').value = '';
+    document.getElementById('rm-target').value = '';
+    pendingFiles = [];
+    renderFilePreviews();
+    loadRoadmap();
+  } else {
+    alert('Failed to add item');
+  }
+}
+
+async function loadRoadmap() {
+  const status = document.getElementById('rm-filter-status')?.value || 'all';
+  const res = await fetch(API + `/api/roadmap?status=${status}`);
+  const items = await res.json();
+
+  if (status !== 'all') {
+    // Flat list when filtering
+    document.getElementById('roadmap-board').innerHTML = items.length
+      ? `<div style="width:100%">${items.map(renderRoadmapCard).join('')}</div>`
+      : '<div class="empty">No items found</div>';
+    return;
+  }
+
+  // Kanban columns
+  const planned = items.filter(i => i.status === 'planned');
+  const inProgress = items.filter(i => i.status === 'in_progress');
+  const done = items.filter(i => i.status === 'done');
+
+  document.getElementById('roadmap-board').innerHTML = `
+    <div class="roadmap-col">
+      <div class="roadmap-col-header planned">📋 Planned (${planned.length})</div>
+      ${planned.map(renderRoadmapCard).join('') || '<div class="empty" style="padding:20px">No planned items</div>'}
+    </div>
+    <div class="roadmap-col">
+      <div class="roadmap-col-header in_progress">🔨 In Progress (${inProgress.length})</div>
+      ${inProgress.map(renderRoadmapCard).join('') || '<div class="empty" style="padding:20px">Nothing in progress</div>'}
+    </div>
+    <div class="roadmap-col">
+      <div class="roadmap-col-header done">✅ Done (${done.length})</div>
+      ${done.map(renderRoadmapCard).join('') || '<div class="empty" style="padding:20px">Nothing completed yet</div>'}
+    </div>
+  `;
+}
+
+function renderRoadmapCard(item) {
+  const targetStr = item.target_date ? `<span style="font-size:11px;color:var(--muted)">📅 ${new Date(item.target_date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>` : '';
+  const catBadge = item.category ? `<span class="badge medium" style="font-size:10px">${esc(item.category)}</span>` : '';
+  const prioBadge = `<span class="badge ${item.priority}">${item.priority}</span>`;
+
+  let attachHtml = '';
+  if (item.attachments && item.attachments.length > 0) {
+    attachHtml = '<div class="rm-attachments">' + item.attachments.map(a => {
+      if (a.mime_type.startsWith('image/')) {
+        return `<img class="rm-thumb" src="${a.url}" alt="${esc(a.original_name)}" onclick="event.stopPropagation();openLightbox('${a.url}','image')" title="${esc(a.original_name)}">`;
+      } else if (a.mime_type.startsWith('video/')) {
+        return `<div class="rm-thumb" style="display:flex;align-items:center;justify-content:center;background:var(--bg);font-size:22px;cursor:pointer" onclick="event.stopPropagation();openLightbox('${a.url}','video')" title="${esc(a.original_name)}">🎬</div>`;
+      } else {
+        return `<a class="rm-file" href="${a.url}" target="_blank" onclick="event.stopPropagation()">📎 ${esc(a.original_name)}</a>`;
+      }
+    }).join('') + '</div>';
+  }
+
+  return `<div class="roadmap-card">
+    <h4>${esc(item.title)}</h4>
+    ${item.description ? `<p>${esc(item.description)}</p>` : ''}
+    <div class="rm-meta">${prioBadge} ${catBadge} ${targetStr}</div>
+    ${attachHtml}
+    <div class="rm-actions">
+      <select onchange="updateRoadmapStatus(${item.id}, this.value)">
+        <option value="planned" ${item.status==='planned'?'selected':''}>Planned</option>
+        <option value="in_progress" ${item.status==='in_progress'?'selected':''}>In Progress</option>
+        <option value="done" ${item.status==='done'?'selected':''}>Done</option>
+      </select>
+      <button onclick="uploadMoreFiles(${item.id})">+ Files</button>
+      <button onclick="deleteRoadmapItem(${item.id})" style="color:var(--red)">Delete</button>
+    </div>
+  </div>`;
+}
+
+async function updateRoadmapStatus(id, status) {
+  await fetch(API + `/api/roadmap/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  loadRoadmap();
+}
+
+async function deleteRoadmapItem(id) {
+  if (!confirm('Delete this roadmap item?')) return;
+  await fetch(API + `/api/roadmap/${id}`, { method: 'DELETE' });
+  loadRoadmap();
+}
+
+function uploadMoreFiles(itemId) {
+  const input = document.createElement('input');
+  input.type = 'file'; input.multiple = true; input.accept = 'image/*,video/*,.pdf';
+  input.onchange = async () => {
+    const fd = new FormData();
+    for (const f of input.files) fd.append('files', f);
+    await fetch(API + `/api/roadmap/${itemId}/attachments`, { method: 'POST', body: fd });
+    loadRoadmap();
+  };
+  input.click();
+}
+
+function openLightbox(url, type) {
+  const lb = document.getElementById('lightbox');
+  const img = document.getElementById('lightbox-img');
+  const vid = document.getElementById('lightbox-video');
+  if (type === 'image') { img.src = url; img.style.display = 'block'; vid.style.display = 'none'; vid.pause(); }
+  else { vid.src = url; vid.style.display = 'block'; img.style.display = 'none'; }
+  lb.classList.add('active');
+}
+
+function closeLightbox() {
+  const lb = document.getElementById('lightbox');
+  lb.classList.remove('active');
+  document.getElementById('lightbox-video').pause();
 }
 
 // Auto-refresh every 30s

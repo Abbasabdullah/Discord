@@ -71,6 +71,29 @@ export const decisions = sqliteTable('decisions', {
   createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
+export const roadmapItems = sqliteTable('roadmap_items', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  title:       text('title').notNull(),
+  description: text('description'),
+  status:      text('status', { enum: ['planned', 'in_progress', 'done'] }).notNull().default('planned'),
+  priority:    text('priority', { enum: ['low', 'medium', 'high'] }).notNull().default('medium'),
+  category:    text('category'),       // e.g. "Feature", "Bug Fix", "Improvement"
+  targetDate:  integer('target_date'),  // optional unix timestamp
+  createdBy:   text('created_by').notNull(),
+  createdAt:   integer('created_at').notNull().default(sql`(unixepoch())`),
+  updatedAt:   integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const roadmapAttachments = sqliteTable('roadmap_attachments', {
+  id:         integer('id').primaryKey({ autoIncrement: true }),
+  itemId:     integer('item_id').notNull(),
+  filename:   text('filename').notNull(),
+  originalName: text('original_name').notNull(),
+  mimeType:   text('mime_type').notNull(),
+  size:       integer('size').notNull(),
+  createdAt:  integer('created_at').notNull().default(sql`(unixepoch())`),
+});
+
 export type Ticket = typeof tickets.$inferSelect;
 export type NewTicket = typeof tickets.$inferInsert;
 export type ConversationMessage = typeof conversationHistory.$inferSelect;

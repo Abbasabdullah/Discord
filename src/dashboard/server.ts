@@ -1,12 +1,19 @@
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCookie from '@fastify/cookie';
+import fastifyMultipart from '@fastify/multipart';
 import * as path from 'path';
+import * as fs from 'fs';
+import * as crypto from 'crypto';
 import { env } from '../config/env';
 import { getSqlite } from '../db/index';
 import { TEAM_MEMBERS } from '../utils/team';
 import { getCurrentTarget, getTargetHistory } from '../sales/sales.service';
 import { getDecisions } from '../ai/decisions';
+
+// Uploads directory
+const UPLOADS_DIR = path.resolve(process.cwd(), 'data', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const COOKIE_NAME = 'dash_auth';
 const COOKIE_SECRET = 'task-advisor-dash-2024';
@@ -22,9 +29,16 @@ export async function startDashboard() {
 
   // Plugins
   await app.register(fastifyCookie);
+  await app.register(fastifyMultipart, { limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
   await app.register(fastifyStatic, {
     root: path.join(__dirname, 'public'),
     prefix: '/',
+  });
+  // Serve uploaded files
+  await app.register(fastifyStatic, {
+    root: UPLOADS_DIR,
+    prefix: '/uploads/',
+    decorateReply: false,
   });
 
   // ── Auth middleware for /api routes ─────────────────────────
@@ -203,6 +217,152 @@ export async function startDashboard() {
   app.get('/api/decisions', async (req) => {
     const { search } = req.query as { search?: string };
     return getDecisions(50, search);
+  });
+
+  // ── GET /api/roadmap ────────────────────────────────────────
+  app.get('/api/roadmap', async (req) => {
+    const db = getSqlite();
+    const { status } = req.query as { status?: string };
+    let query = `SELECT * FROM roadmap_items WHERE 1=1`;
+    const params: string[] = [];
+    if (status && status !== 'all') { query += ` AND status = ?`; params.push(status); }
+    query += ` ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC`;
+    const items = db.prepare(query).all(...params) as any[];
+
+    // Attach attachments to each item
+    const attachStmt = db.prepare(`SELECT * FROM roadmap_attachments WHERE item_id = ? ORDER BY created_at ASC`);
+    return items.map(item => ({
+      ...item,
+      attachments: (attachStmt.all(item.id) as any[]).map(a => ({
+        id: a.id,
+        filename: a.filename,
+        original_name: a.original_name,
+        mime_type: a.mime_type,
+        size: a.size,
+        url: `/uploads/${a.filename}`,
+      })),
+    }));
+  });
+
+  // ── POST /api/roadmap ─────────────────────────────────────
+  app.post('/api/roadmap', async (req, reply) => {
+    const db = getSqlite();
+    const parts = req.parts();
+    const fields: Record<string, string> = {};
+    const files: Array<{ filename: string; originalName: string; mimeType: string; size: number }> = [];
+
+    for await (const part of parts) {
+      if (part.type === 'field') {
+        fields[part.fieldname] = part.value as string;
+      } else if (part.type === 'file') {
+        const ext = path.extname(part.filename) || '';
+        const safeName = crypto.randomUUID() + ext;
+        const dest = path.join(UPLOADS_DIR, safeName);
+        const chunks: Buffer[] = [];
+        for await (const chunk of part.file) chunks.push(chunk);
+        const buf = Buffer.concat(chunks);
+        fs.writeFileSync(dest, buf);
+        files.push({ filename: safeName, originalName: part.filename, mimeType: part.mimetype, size: buf.length });
+      }
+    }
+
+    if (!fields.title) { reply.code(400).send({ error: 'title is required' }); return; }
+
+    const result = db.prepare(`
+      INSERT INTO roadmap_items (title, description, status, priority, category, target_date, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *
+    `).get(
+      fields.title,
+      fields.description || null,
+      fields.status || 'planned',
+      fields.priority || 'medium',
+      fields.category || null,
+      fields.target_date ? parseInt(fields.target_date) : null,
+      fields.created_by || 'dashboard',
+    ) as any;
+
+    // Save attachments
+    const attachStmt = db.prepare(`INSERT INTO roadmap_attachments (item_id, filename, original_name, mime_type, size) VALUES (?, ?, ?, ?, ?)`);
+    for (const f of files) {
+      attachStmt.run(result.id, f.filename, f.originalName, f.mimeType, f.size);
+    }
+
+    return { success: true, id: result.id };
+  });
+
+  // ── PUT /api/roadmap/:id ──────────────────────────────────
+  app.put('/api/roadmap/:id', async (req, reply) => {
+    const db = getSqlite();
+    const { id } = req.params as { id: string };
+    const body = req.body as any;
+    const updates: string[] = [];
+    const params: any[] = [];
+
+    if (body.title !== undefined) { updates.push('title = ?'); params.push(body.title); }
+    if (body.description !== undefined) { updates.push('description = ?'); params.push(body.description); }
+    if (body.status !== undefined) { updates.push('status = ?'); params.push(body.status); }
+    if (body.priority !== undefined) { updates.push('priority = ?'); params.push(body.priority); }
+    if (body.category !== undefined) { updates.push('category = ?'); params.push(body.category); }
+    if (body.target_date !== undefined) { updates.push('target_date = ?'); params.push(body.target_date); }
+
+    if (updates.length === 0) { reply.code(400).send({ error: 'nothing to update' }); return; }
+    updates.push('updated_at = ?'); params.push(Math.floor(Date.now() / 1000));
+    params.push(parseInt(id));
+
+    db.prepare(`UPDATE roadmap_items SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    return { success: true };
+  });
+
+  // ── DELETE /api/roadmap/:id ───────────────────────────────
+  app.delete('/api/roadmap/:id', async (req) => {
+    const db = getSqlite();
+    const { id } = req.params as { id: string };
+    // Delete attachments files
+    const attachments = db.prepare(`SELECT filename FROM roadmap_attachments WHERE item_id = ?`).all(parseInt(id)) as any[];
+    for (const a of attachments) {
+      const fp = path.join(UPLOADS_DIR, a.filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    }
+    db.prepare(`DELETE FROM roadmap_attachments WHERE item_id = ?`).run(parseInt(id));
+    db.prepare(`DELETE FROM roadmap_items WHERE id = ?`).run(parseInt(id));
+    return { success: true };
+  });
+
+  // ── POST /api/roadmap/:id/attachments ─────────────────────
+  app.post('/api/roadmap/:id/attachments', async (req) => {
+    const db = getSqlite();
+    const { id } = req.params as { id: string };
+    const parts = req.parts();
+    const saved: any[] = [];
+
+    for await (const part of parts) {
+      if (part.type === 'file') {
+        const ext = path.extname(part.filename) || '';
+        const safeName = crypto.randomUUID() + ext;
+        const dest = path.join(UPLOADS_DIR, safeName);
+        const chunks: Buffer[] = [];
+        for await (const chunk of part.file) chunks.push(chunk);
+        const buf = Buffer.concat(chunks);
+        fs.writeFileSync(dest, buf);
+        db.prepare(`INSERT INTO roadmap_attachments (item_id, filename, original_name, mime_type, size) VALUES (?, ?, ?, ?, ?)`)
+          .run(parseInt(id), safeName, part.filename, part.mimetype, buf.length);
+        saved.push({ filename: safeName, original_name: part.filename, url: `/uploads/${safeName}` });
+      }
+    }
+    return { success: true, attachments: saved };
+  });
+
+  // ── DELETE /api/roadmap/attachment/:id ─────────────────────
+  app.delete('/api/roadmap/attachment/:id', async (req) => {
+    const db = getSqlite();
+    const { id } = req.params as { id: string };
+    const att = db.prepare(`SELECT filename FROM roadmap_attachments WHERE id = ?`).get(parseInt(id)) as any;
+    if (att) {
+      const fp = path.join(UPLOADS_DIR, att.filename);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      db.prepare(`DELETE FROM roadmap_attachments WHERE id = ?`).run(parseInt(id));
+    }
+    return { success: true };
   });
 
   // ── Start ──────────────────────────────────────────────────

@@ -91,6 +91,29 @@ export function runMigrations() {
       created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
+
+    CREATE TABLE IF NOT EXISTS roadmap_items (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      title        TEXT NOT NULL,
+      description  TEXT,
+      status       TEXT NOT NULL DEFAULT 'planned',
+      priority     TEXT NOT NULL DEFAULT 'medium',
+      category     TEXT,
+      target_date  INTEGER,
+      created_by   TEXT NOT NULL,
+      created_at   INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at   INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+
+    CREATE TABLE IF NOT EXISTS roadmap_attachments (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      item_id       INTEGER NOT NULL,
+      filename      TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type     TEXT NOT NULL,
+      size          INTEGER NOT NULL,
+      created_at    INTEGER NOT NULL DEFAULT (unixepoch())
+    );
   `);
 }
 
