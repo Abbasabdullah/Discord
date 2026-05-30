@@ -7,6 +7,15 @@ import { env } from '../config/env';
 import { genAI } from '../ai/gemini';
 import { getDueReminders, markReminderSent } from '../tickets/reminder.service';
 import { getCurrentTarget } from '../sales/sales.service';
+import {
+  generateSmartBriefing,
+  checkDeadlines,
+  checkIdleMembers,
+  checkWorkloadImbalance,
+  checkWins,
+  checkFollowUps,
+  generateMeetingPrep,
+} from '../ai/proactive';
 
 async function generateJoke(): Promise<string> {
   try {
@@ -19,6 +28,25 @@ async function generateJoke(): Promise<string> {
     return result.response.text().trim();
   } catch {
     return '☕ Remember: the best code is the code you don\'t have to write!';
+  }
+}
+
+/** Send a message, splitting into chunks if over 2000 chars */
+async function sendChunked(text: string) {
+  if (text.length <= 2000) {
+    await sendToAIChannel({ content: text });
+    return;
+  }
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= 2000) {
+      await sendToAIChannel({ content: remaining });
+      break;
+    }
+    let splitAt = remaining.lastIndexOf('\n', 2000);
+    if (splitAt < 500) splitAt = 2000;
+    await sendToAIChannel({ content: remaining.slice(0, splitAt) });
+    remaining = remaining.slice(splitAt).trim();
   }
 }
 
@@ -37,199 +65,228 @@ export function startReportScheduler() {
     }
   });
 
-  // ── 9 AM Daily (Sat–Thu): Joke + Tasks Briefing + Report ─────
-  // Friday is a day off in Bahrain — skip Friday (5)
-  console.log(`📅 Morning briefing (Sat–Thu): "0 9 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  // ══════════════════════════════════════════════════════════════
+  // 9 AM SMART MORNING BRIEFING (Sat–Thu)
+  // Joke + personalized tasks + smart nudges per member
+  // ══════════════════════════════════════════════════════════════
+  console.log(`📅 Smart morning briefing: "0 9 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 9 * * 0-4,6', async () => {
-    console.log('\n🌅 Sending morning briefing...');
+    console.log('\n🧠 Generating smart morning briefing...');
 
     // Joke
     try {
       const joke = await generateJoke();
       await sendToAIChannel({ content: `**Good morning! 🌞**\n\n${joke}` });
     } catch (err) {
-      console.error('❌ Failed to send morning joke:', err);
+      console.error('❌ Joke error:', err);
     }
 
-    // Daily tasks briefing — grouped by team member
+    // Smart personalized briefing
     try {
-      const sqlite = getSqlite();
-      const members = ['Hasan', 'Hussain', 'Abbas', 'Anas'];
-      const allOpen = sqlite.prepare(`
-        SELECT id, title, priority, assigned_to, project FROM tickets
-        WHERE status != 'closed' ORDER BY assigned_to, priority DESC
-      `).all() as any[];
-
-      const byMember: Record<string, any[]> = {};
-      const unassigned: any[] = [];
-      for (const t of allOpen) {
-        if (t.assigned_to && members.includes(t.assigned_to)) {
-          if (!byMember[t.assigned_to]) byMember[t.assigned_to] = [];
-          byMember[t.assigned_to].push(t);
-        } else if (!t.assigned_to) {
-          unassigned.push(t);
-        }
-      }
-
-      const prioEmoji: Record<string, string> = { urgent: '🚨', high: '🟧', medium: '🟩', low: '🟦' };
-      let msg = `📋 **Today's Tasks — ${new Date().toLocaleDateString('en-US', { timeZone: env.REPORT_TIMEZONE, weekday: 'long', month: 'short', day: 'numeric' })}**\n`;
-
-      for (const name of members) {
-        const tasks = byMember[name] ?? [];
-        msg += `\n**👤 ${name}** (${tasks.length} open)\n`;
-        if (tasks.length === 0) {
-          msg += `• No open tasks 🎉\n`;
-        } else {
-          for (const t of tasks.slice(0, 8)) {
-            const proj = t.project ? ` [${t.project}]` : '';
-            msg += `• ${prioEmoji[t.priority] ?? '•'} #${t.id} ${t.title}${proj}\n`;
-          }
-          if (tasks.length > 8) msg += `• _…and ${tasks.length - 8} more_\n`;
-        }
-      }
-
-      if (unassigned.length > 0) {
-        msg += `\n**⚠️ Unassigned (${unassigned.length})**\n`;
-        for (const t of unassigned.slice(0, 5)) {
-          msg += `• #${t.id} ${t.title}\n`;
-        }
-        if (unassigned.length > 5) msg += `• _…and ${unassigned.length - 5} more_\n`;
-      }
-
-      await sendToAIChannel({ content: msg });
+      const briefing = generateSmartBriefing();
+      await sendChunked(briefing);
     } catch (err) {
-      console.error('❌ Failed to send daily tasks briefing:', err);
+      console.error('❌ Smart briefing error:', err);
     }
 
-    // Report to report channel
-    if (!env.DISCORD_REPORT_CHANNEL_ID) return;
-    try {
-      const { embed, count } = generateDailyReport();
-      await sendToReportChannel({ embeds: [embed] });
-      db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID, ticketCount: count, status: 'success' }).run();
-      console.log(`✅ Morning report sent (${count} open tickets)`);
-    } catch (err) {
-      console.error('❌ Failed to send morning report:', err);
-      db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID ?? 'unknown', ticketCount: 0, status: 'failed' }).run();
+    // Report embed to report channel
+    if (env.DISCORD_REPORT_CHANNEL_ID) {
+      try {
+        const { embed, count } = generateDailyReport();
+        await sendToReportChannel({ embeds: [embed] });
+        db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID, ticketCount: count, status: 'success' }).run();
+      } catch (err) {
+        console.error('❌ Morning report error:', err);
+        db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID ?? 'unknown', ticketCount: 0, status: 'failed' }).run();
+      }
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── 4 PM Task Registration Reminder (Sat–Thu only) ──────────
-  console.log(`📋 Task reminder: "0 16 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  // ══════════════════════════════════════════════════════════════
+  // 10 AM PROACTIVE BRAIN (Sat–Thu)
+  // Deadline alerts + follow-up nudges
+  // ══════════════════════════════════════════════════════════════
+  console.log(`🧠 Proactive brain (10 AM): "0 10 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 10 * * 0-4,6', async () => {
+    console.log('\n🧠 Running proactive brain — 10 AM...');
+
+    // Deadline alerts
+    try {
+      const deadlines = checkDeadlines();
+      if (deadlines) await sendToAIChannel({ content: deadlines });
+    } catch (err) {
+      console.error('❌ Deadline check error:', err);
+    }
+
+    // Follow-up nudges
+    try {
+      const followUps = checkFollowUps();
+      if (followUps) await sendToAIChannel({ content: followUps });
+    } catch (err) {
+      console.error('❌ Follow-up check error:', err);
+    }
+  }, { timezone: env.REPORT_TIMEZONE });
+
+  // ══════════════════════════════════════════════════════════════
+  // 1 PM PROACTIVE BRAIN (Sat–Thu)
+  // Idle detection + workload imbalance + wins celebration
+  // ══════════════════════════════════════════════════════════════
+  console.log(`🧠 Proactive brain (1 PM): "0 13 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 13 * * 0-4,6', async () => {
+    console.log('\n🧠 Running proactive brain — 1 PM...');
+
+    // Idle member detection
+    try {
+      const idle = checkIdleMembers();
+      if (idle) await sendToAIChannel({ content: idle });
+    } catch (err) {
+      console.error('❌ Idle check error:', err);
+    }
+
+    // Workload imbalance
+    try {
+      const imbalance = checkWorkloadImbalance();
+      if (imbalance) await sendToAIChannel({ content: imbalance });
+    } catch (err) {
+      console.error('❌ Workload check error:', err);
+    }
+
+    // Auto-celebrate wins
+    try {
+      const wins = checkWins();
+      if (wins) await sendToAIChannel({ content: wins });
+    } catch (err) {
+      console.error('❌ Wins check error:', err);
+    }
+  }, { timezone: env.REPORT_TIMEZONE });
+
+  // ══════════════════════════════════════════════════════════════
+  // 4 PM TASK REGISTRATION REMINDER (Sat–Thu)
+  // ══════════════════════════════════════════════════════════════
+  console.log(`📋 Task reminder (4 PM): "0 16 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 16 * * 0-4,6', async () => {
-    console.log('\n📋 Sending 4PM task reminder...');
+    console.log('\n📋 4 PM task reminder...');
     try {
       await sendToAIChannel({
-        content: `⏰ **Daily Reminder** — It's 4:00 PM!\n\nPlease make sure you've logged all your tasks for today. If you have anything in progress or pending, update it now so the team stays in sync. 📝\n\nType a message here or use \`/create-ticket\` to log tasks.`,
+        content: `⏰ **Daily Reminder** — It's 4:00 PM!\n\nPlease log any tasks you worked on today. Update ticket statuses so the team stays in sync. 📝`,
       });
     } catch (err) {
-      console.error('❌ Failed to send task reminder:', err);
+      console.error('❌ Task reminder error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Sunday 10 AM Weekly Meeting Reminder ─────────────────────
-  console.log(`📅 Weekly meeting reminder: "0 10 * * 0" (${env.REPORT_TIMEZONE})`);
+  // ══════════════════════════════════════════════════════════════
+  // SUNDAY 9:30 AM — MEETING PREP
+  // Auto-generated summary before the 10 AM weekly meeting
+  // ══════════════════════════════════════════════════════════════
+  console.log(`📊 Meeting prep: "30 9 * * 0" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('30 9 * * 0', async () => {
+    console.log('\n📊 Generating meeting prep...');
+    try {
+      const prep = generateMeetingPrep();
+      await sendChunked(prep);
+    } catch (err) {
+      console.error('❌ Meeting prep error:', err);
+    }
+  }, { timezone: env.REPORT_TIMEZONE });
+
+  // ══════════════════════════════════════════════════════════════
+  // SUNDAY 10 AM — WEEKLY MEETING REMINDER
+  // ══════════════════════════════════════════════════════════════
+  console.log(`📅 Weekly meeting: "0 10 * * 0" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 10 * * 0', async () => {
-    console.log('\n📅 Sending weekly meeting reminder...');
+    console.log('\n📅 Weekly meeting reminder...');
     try {
       await sendToAIChannel({
-        content: `🗓️ **Weekly Meeting — Starting Now!**\n\nGood morning everyone! Our weekly team meeting is starting at 10 AM. 🚀\n\nPlease join and be ready to share your updates. After the meeting, send me a voice note with the summary and I'll extract the action items for the whole team. 🎙️`,
+        content: `🗓️ **Weekly Meeting — Starting Now!**\n\nThe prep summary was posted above ☝️ — use it as your agenda.\n\nAfter the meeting, send me a voice note and I'll extract all action items for the team! 🎙️`,
       });
     } catch (err) {
-      console.error('❌ Failed to send weekly meeting reminder:', err);
+      console.error('❌ Meeting reminder error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── 10 PM Evening Reminder ────────────────────────────────────
-  console.log(`🌙 Evening reminder: "0 22 * * *" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 22 * * *', async () => {
-    console.log('\n🌙 Sending evening reminder...');
-    if (!env.DISCORD_REPORT_CHANNEL_ID) return;
-    try {
-      const { embed, count } = generateEveningReminder();
-      await sendToReportChannel({ embeds: [embed] });
-      db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID, ticketCount: count, status: 'success' }).run();
-      console.log(`✅ Evening reminder sent (${count} open tickets)`);
-    } catch (err) {
-      console.error('❌ Failed to send evening reminder:', err);
-      db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID ?? 'unknown', ticketCount: 0, status: 'failed' }).run();
-    }
-  }, { timezone: env.REPORT_TIMEZONE });
-
-  // ── Saturday 8 AM: Weekly standup report (Bahrain week starts Sat) ──
+  // ══════════════════════════════════════════════════════════════
+  // SATURDAY 8 AM — NEW WEEK STANDUP
+  // ══════════════════════════════════════════════════════════════
   console.log(`📋 Saturday standup: "0 8 * * 6" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 8 * * 6', async () => {
-    console.log('\n📋 Posting Saturday standup...');
+    console.log('\n📋 Saturday standup — new week...');
     try {
       const sqlite = getSqlite();
       const lastWeekTs = Math.floor(Date.now() / 1000) - 7 * 86400;
 
-      const openByMember = sqlite.prepare(`
-        SELECT assigned_to, COUNT(*) as count
-        FROM tickets WHERE status != 'closed' AND assigned_to IS NOT NULL
-        GROUP BY assigned_to ORDER BY assigned_to
-      `).all() as any[];
+      const closedLastWeek = (sqlite.prepare(`
+        SELECT COUNT(*) as c FROM tickets WHERE status = 'closed' AND closed_at > ?
+      `).get(lastWeekTs) as any).c;
 
-      const closedLastWeek = sqlite.prepare(`
-        SELECT COUNT(*) as count FROM tickets WHERE status = 'closed' AND closed_at > ?
-      `).get(lastWeekTs) as any;
+      const createdLastWeek = (sqlite.prepare(`
+        SELECT COUNT(*) as c FROM tickets WHERE created_at > ?
+      `).get(lastWeekTs) as any).c;
 
-      const urgent = sqlite.prepare(`
-        SELECT id, title, assigned_to FROM tickets WHERE priority = 'urgent' AND status != 'closed'
-      `).all() as any[];
+      const totalOpen = (sqlite.prepare(`
+        SELECT COUNT(*) as c FROM tickets WHERE status != 'closed'
+      `).get() as any).c;
 
-      const unassigned = sqlite.prepare(`
-        SELECT COUNT(*) as count FROM tickets WHERE assigned_to IS NULL AND status != 'closed'
-      `).get() as any;
-
-      let msg = `📋 **Good morning team! Saturday standup — new week starts now!** 🌅\n\n**Open Tasks by Member:**\n`;
-      for (const row of openByMember) {
-        msg += `👤 **${row.assigned_to}** — ${row.count} open\n`;
+      // Sales last week recap
+      const target = getCurrentTarget();
+      let salesRecap = '';
+      if (target) {
+        const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
+        salesRecap = `\n💰 Last week sales: ${target.currentAmount}/${target.targetAmount} ${target.currency} (${pct}%)`;
+        if (pct >= 100) salesRecap += ' — TARGET HIT! 🏆';
       }
-      if (unassigned.count > 0) msg += `⚠️ **${unassigned.count} unassigned** — needs an owner!\n`;
-      msg += `\n✅ Closed last 7 days: **${closedLastWeek.count}**\n`;
-      if (urgent.length > 0) {
-        msg += `\n🚨 **Urgent:**\n`;
-        for (const t of urgent) msg += `• #${t.id} ${t.title} (${t.assigned_to ?? 'unassigned'})\n`;
-      }
-      msg += `\nLet's have a great week! 💪`;
 
-      await sendToAIChannel({ content: msg });
+      let msg = `📋 **New Week — Saturday Standup** 🌅\n\n`;
+      msg += `**Last Week Recap:**\n`;
+      msg += `• ✅ ${closedLastWeek} ticket(s) closed\n`;
+      msg += `• 📝 ${createdLastWeek} new ticket(s) created\n`;
+      msg += `• 📊 ${totalOpen} ticket(s) still open${salesRecap}\n`;
+
+      // Task debt warning
+      if (createdLastWeek > closedLastWeek && closedLastWeek > 0) {
+        msg += `\n⚠️ **Task debt growing** — created ${createdLastWeek} but only closed ${closedLastWeek}. Focus on closing this week!\n`;
+      }
+
+      // Fresh smart briefing for the new week
+      msg += `\n${generateSmartBriefing()}`;
+
+      await sendChunked(msg);
     } catch (err) {
-      console.error('❌ Standup error:', err);
+      console.error('❌ Saturday standup error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Daily 10 AM: Stale task check (5+ days no update) ────────
-  console.log(`🔍 Stale task check: "0 10 * * *" (${env.REPORT_TIMEZONE})`);
-  cron.schedule('0 10 * * *', async () => {
-    console.log('\n🔍 Checking stale tasks...');
+  // ══════════════════════════════════════════════════════════════
+  // 10 PM — EVENING WRAP-UP
+  // ══════════════════════════════════════════════════════════════
+  console.log(`🌙 Evening wrap-up: "0 22 * * *" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 22 * * *', async () => {
+    console.log('\n🌙 Evening wrap-up...');
+
+    // Celebrate any wins from today
     try {
-      const sqlite = getSqlite();
-      const fiveDaysAgo = Math.floor(Date.now() / 1000) - 5 * 86400;
-      const stale = sqlite.prepare(`
-        SELECT id, title, assigned_to, updated_at
-        FROM tickets
-        WHERE status != 'closed' AND updated_at < ? AND assigned_to IS NOT NULL
-        ORDER BY updated_at ASC LIMIT 10
-      `).all(fiveDaysAgo) as any[];
-
-      if (stale.length === 0) return;
-
-      let msg = `⏰ **Stale Tasks** — ${stale.length} ticket(s) haven't been touched in 5+ days:\n\n`;
-      for (const t of stale) {
-        const days = Math.floor((Date.now() / 1000 - t.updated_at) / 86400);
-        msg += `• **#${t.id}** ${t.title} — ${t.assigned_to} _(${days}d ago)_\n`;
-      }
-      msg += `\nPlease update or close if done! ✅`;
-
-      await sendToAIChannel({ content: msg });
+      const wins = checkWins();
+      if (wins) await sendToAIChannel({ content: wins });
     } catch (err) {
-      console.error('❌ Stale check error:', err);
+      console.error('❌ Evening wins error:', err);
+    }
+
+    // Send report embed
+    if (env.DISCORD_REPORT_CHANNEL_ID) {
+      try {
+        const { embed, count } = generateEveningReminder();
+        await sendToReportChannel({ embeds: [embed] });
+        db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID, ticketCount: count, status: 'success' }).run();
+      } catch (err) {
+        console.error('❌ Evening report error:', err);
+        db.insert(reportLog).values({ recipient: env.DISCORD_REPORT_CHANNEL_ID ?? 'unknown', ticketCount: 0, status: 'failed' }).run();
+      }
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Wednesday 4 PM: Mid-week sales check (2 days left) ──────
+  // ══════════════════════════════════════════════════════════════
+  // SALES PUSH — WEDNESDAY 4 PM + THURSDAY 1 PM
+  // ══════════════════════════════════════════════════════════════
   console.log(`💰 Wednesday sales push: "0 16 * * 3" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 16 * * 3', async () => {
     console.log('\n💰 Wednesday sales push...');
@@ -240,13 +297,13 @@ export function startReportScheduler() {
       const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
       let msg = '';
       if (pct >= 100) {
-        msg = `🎉 **SALES TARGET SMASHED!** ${pct}% — ${target.currentAmount} ${target.currency} vs target of ${target.targetAmount}! Incredible work with 2 days still left! 🏆`;
+        msg = `🎉 **SALES TARGET SMASHED!** ${pct}% — ${target.currentAmount} ${target.currency} vs target of ${target.targetAmount}! Incredible with 2 days still left! 🏆`;
       } else if (pct >= 75) {
-        msg = `🔥 **Sales Check — 2 days left!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\nJust **${gap} ${target.currency}** to close — you're SO close! Let's finish strong! 💪`;
+        msg = `🔥 **Sales — 2 days left!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\nJust **${gap} ${target.currency}** to close — you're SO close! 💪`;
       } else if (pct >= 50) {
-        msg = `⚡ **Sales Check — Push time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** gap with Wed + Thu left. Every conversation counts! 🚀`;
+        msg = `⚡ **Sales — Push time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** gap with Wed + Thu left. Every conversation counts! 🚀`;
       } else {
-        msg = `💪 **Sales Check — Time to sprint!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** remaining — Wednesday afternoon + all of Thursday. Big gap = big opportunity. Who's got a hot lead? 🔥`;
+        msg = `💪 **Sales — Sprint time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** remaining — big gap = big opportunity. Who's got a hot lead? 🔥`;
       }
       await sendToAIChannel({ content: msg });
     } catch (err) {
@@ -254,7 +311,6 @@ export function startReportScheduler() {
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
-  // ── Thursday 1 PM: Final day of the work week push ───────────
   console.log(`💰 Thursday final push: "0 13 * * 4" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 13 * * 4', async () => {
     console.log('\n💰 Thursday final push...');
@@ -265,13 +321,13 @@ export function startReportScheduler() {
       const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
       let msg = '';
       if (pct >= 100) {
-        msg = `🏆 **GOAL ACHIEVED!** What a week — ${target.currentAmount} ${target.currency} smashed the ${target.targetAmount} target! Enjoy your weekend, legends! 🎊`;
+        msg = `🏆 **GOAL ACHIEVED!** ${target.currentAmount} ${target.currency} smashed the ${target.targetAmount} target! Enjoy your weekend! 🎊`;
       } else {
-        msg = `🚨 **LAST DAY — THURSDAY FINAL PUSH!**\n\nAt **${pct}%** — **${gap} ${target.currency}** remaining\n\nThis is it! Tomorrow is Friday (off). Every call, every proposal, every follow-up you do in the next few hours counts. Let's close this week strong! 🔥💪`;
+        msg = `🚨 **LAST DAY — THURSDAY FINAL PUSH!**\n\nAt **${pct}%** — **${gap} ${target.currency}** remaining\n\nTomorrow is Friday (off). Every call, every follow-up counts NOW. Let's close this week strong! 🔥💪`;
       }
       await sendToAIChannel({ content: msg });
     } catch (err) {
-      console.error('❌ Thursday final push error:', err);
+      console.error('❌ Thursday push error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 }
