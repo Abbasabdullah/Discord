@@ -94,6 +94,58 @@ export const TOOLS: Tool[] = [
         },
       },
       {
+        name: 'add_roadmap_item',
+        description: 'Add an item to the product development roadmap. Use when the team discusses a new feature, improvement, or bug fix to build.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            title:       { type: 'STRING' as any, description: 'Short title of the feature or item' },
+            description: { type: 'STRING' as any, description: 'Detailed description (optional)' },
+            priority:    { type: 'STRING' as any, description: 'Priority: low | medium | high (default: medium)' },
+            category:    { type: 'STRING' as any, description: 'Category: Feature | Bug Fix | Improvement | Design | Infrastructure' },
+            target_date: { type: 'STRING' as any, description: 'Target date as YYYY-MM-DD (optional)' },
+          },
+          required: ['title'],
+        },
+      },
+      {
+        name: 'list_roadmap',
+        description: 'List all items on the product roadmap. Optionally filter by status.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            status: { type: 'STRING' as any, description: 'Filter by status: planned | in_progress | done (optional — shows all if omitted)' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'update_roadmap_item',
+        description: 'Update a roadmap item — change its status, priority, category, or description.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            item_id:     { type: 'NUMBER' as any, description: 'The ID of the roadmap item to update' },
+            status:      { type: 'STRING' as any, description: 'New status: planned | in_progress | done' },
+            priority:    { type: 'STRING' as any, description: 'New priority: low | medium | high' },
+            category:    { type: 'STRING' as any, description: 'New category' },
+            description: { type: 'STRING' as any, description: 'Updated description' },
+          },
+          required: ['item_id'],
+        },
+      },
+      {
+        name: 'delete_roadmap_item',
+        description: 'Delete an item from the roadmap.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            item_id: { type: 'NUMBER' as any, description: 'The ID of the roadmap item to delete' },
+          },
+          required: ['item_id'],
+        },
+      },
+      {
         name: 'set_sales_target',
         description: 'Set the weekly sales target amount. Call when the team defines their goal for this week.',
         parameters: {

@@ -26,6 +26,10 @@ interface ToolInput {
   content?: string;
   context?: string;
   search?: string;
+  // roadmap
+  item_id?: number;
+  category?: string;
+  target_date?: string;
 }
 
 export function executeTool(toolName: string, input: ToolInput, callerPhone: string): string {
@@ -179,6 +183,75 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
             date: new Date(d.createdAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric', year: 'numeric' }),
           })),
         });
+      }
+
+      case 'add_roadmap_item': {
+        if (!input.title) return JSON.stringify({ error: 'title is required' });
+        const db = getSqlite();
+        let targetTs: number | null = null;
+        if (input.target_date) {
+          const d = new Date(input.target_date);
+          if (!isNaN(d.getTime())) targetTs = Math.floor(d.getTime() / 1000);
+        }
+        const result = db.prepare(`
+          INSERT INTO roadmap_items (title, description, status, priority, category, target_date, created_by)
+          VALUES (?, ?, 'planned', ?, ?, ?, ?) RETURNING *
+        `).get(
+          input.title,
+          input.description ?? null,
+          input.priority ?? 'medium',
+          input.category ?? null,
+          targetTs,
+          callerPhone,
+        ) as any;
+        const targetStr = targetTs ? new Date(targetTs * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+        return JSON.stringify({ success: true, id: result.id, title: result.title, priority: result.priority, category: result.category, target: targetStr });
+      }
+
+      case 'list_roadmap': {
+        const db = getSqlite();
+        let query = `SELECT id, title, status, priority, category, target_date FROM roadmap_items WHERE 1=1`;
+        const params: string[] = [];
+        if (input.status) { query += ` AND status = ?`; params.push(input.status); }
+        query += ` ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC`;
+        const items = db.prepare(query).all(...params) as any[];
+        return JSON.stringify({
+          count: items.length,
+          items: items.map(i => ({
+            id: i.id,
+            title: i.title,
+            status: i.status,
+            priority: i.priority,
+            category: i.category,
+            target: i.target_date ? new Date(i.target_date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : null,
+          })),
+        });
+      }
+
+      case 'update_roadmap_item': {
+        if (!input.item_id) return JSON.stringify({ error: 'item_id is required' });
+        const db = getSqlite();
+        const updates: string[] = [];
+        const params: any[] = [];
+        if (input.status) { updates.push('status = ?'); params.push(input.status); }
+        if (input.priority) { updates.push('priority = ?'); params.push(input.priority); }
+        if (input.category) { updates.push('category = ?'); params.push(input.category); }
+        if (input.description) { updates.push('description = ?'); params.push(input.description); }
+        if (updates.length === 0) return JSON.stringify({ error: 'nothing to update' });
+        updates.push('updated_at = ?'); params.push(Math.floor(Date.now() / 1000));
+        params.push(input.item_id);
+        const changed = db.prepare(`UPDATE roadmap_items SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+        if (changed.changes === 0) return JSON.stringify({ error: `Roadmap item #${input.item_id} not found` });
+        return JSON.stringify({ success: true, item_id: input.item_id });
+      }
+
+      case 'delete_roadmap_item': {
+        if (!input.item_id) return JSON.stringify({ error: 'item_id is required' });
+        const db = getSqlite();
+        db.prepare(`DELETE FROM roadmap_attachments WHERE item_id = ?`).run(input.item_id);
+        const result = db.prepare(`DELETE FROM roadmap_items WHERE id = ?`).run(input.item_id);
+        if (result.changes === 0) return JSON.stringify({ error: `Roadmap item #${input.item_id} not found` });
+        return JSON.stringify({ success: true, deleted: input.item_id });
       }
 
       case 'get_workload': {
