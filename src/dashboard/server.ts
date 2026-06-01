@@ -79,6 +79,7 @@ export async function startDashboard() {
     const sentReminders = db.prepare(`SELECT COUNT(*) as c FROM reminders WHERE sent = 1`).get() as any;
     const teamMembers = db.prepare(`SELECT COUNT(DISTINCT created_by) as c FROM tickets`).get() as any;
     const urgentTickets = db.prepare(`SELECT COUNT(*) as c FROM tickets WHERE priority = 'urgent' AND status != 'closed'`).get() as any;
+    const overdueTickets = db.prepare(`SELECT COUNT(*) as c FROM tickets WHERE due_date IS NOT NULL AND due_date < ? AND status != 'closed'`).get(Math.floor(Date.now() / 1000)) as any;
 
     return {
       openTickets: openTickets.c,
@@ -87,16 +88,17 @@ export async function startDashboard() {
       sentReminders: sentReminders.c,
       teamMembers: teamMembers.c,
       urgentTickets: urgentTickets.c,
+      overdueTickets: overdueTickets.c,
     };
   });
 
   // ── GET /api/tickets ───────────────────────────────────────
   app.get('/api/tickets', async (req) => {
     const db = getSqlite();
-    const { status, priority, assignee } = req.query as { status?: string; priority?: string; assignee?: string };
+    const { status, priority, assignee, overdue } = req.query as { status?: string; priority?: string; assignee?: string; overdue?: string };
 
     let query = `SELECT * FROM tickets WHERE 1=1`;
-    const params: string[] = [];
+    const params: any[] = [];
 
     if (status && status !== 'all') {
       query += ` AND status = ?`;
@@ -110,8 +112,12 @@ export async function startDashboard() {
       query += ` AND assigned_to = ?`;
       params.push(assignee);
     }
+    if (overdue === '1') {
+      query += ` AND due_date IS NOT NULL AND due_date < ? AND status != 'closed'`;
+      params.push(Math.floor(Date.now() / 1000));
+    }
 
-    query += ` ORDER BY created_at DESC LIMIT 100`;
+    query += ` ORDER BY CASE WHEN due_date IS NOT NULL AND due_date < ${Math.floor(Date.now() / 1000)} THEN 0 ELSE 1 END, due_date ASC NULLS LAST, created_at DESC LIMIT 100`;
     return db.prepare(query).all(...params);
   });
 

@@ -30,6 +30,9 @@ interface ToolInput {
   item_id?: number;
   category?: string;
   target_date?: string;
+  // tickets
+  due_date?: number;
+  overdue?: boolean;
 }
 
 export function executeTool(toolName: string, input: ToolInput, callerPhone: string): string {
@@ -45,6 +48,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
           project: input.project,
+          dueDate: input.due_date,
           createdBy: callerPhone,
         });
         return JSON.stringify({ ticket_id: ticket.id, message: `Ticket #${ticket.id} created successfully`, ticket });
@@ -71,6 +75,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           assignedTo: normalizeAssignee(input.assigned_to),
           description: input.description,
           project: input.project,
+          dueDate: input.due_date,
         });
         if (!ticket) {
           return JSON.stringify({ error: `Ticket #${input.ticket_id} not found` });
@@ -84,6 +89,7 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
           priority: input.priority,
           assignedTo: normalizeAssignee(input.assigned_to),
           project: input.project,
+          overdue: input.overdue,
           limit: input.limit ?? 50,
         });
         return JSON.stringify({ count: tickets.length, tickets: tickets.map(summarize) });
@@ -282,6 +288,10 @@ function daysSince(unixTimestamp: number): number {
 }
 
 function summarize(ticket: Ticket) {
+  const ts = Math.floor(Date.now() / 1000);
+  const due = ticket.dueDate
+    ? new Date(ticket.dueDate * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' })
+    : null;
   return {
     id:          ticket.id,
     title:       ticket.title,
@@ -289,5 +299,7 @@ function summarize(ticket: Ticket) {
     priority:    ticket.priority,
     assigned_to: ticket.assignedTo,
     project:     ticket.project ?? null,
+    due:         due,
+    overdue:     ticket.dueDate ? ticket.dueDate < ts : false,
   };
 }

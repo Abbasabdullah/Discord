@@ -305,6 +305,10 @@
         <option value="Abbas">Abbas</option>
         <option value="Anas">Anas</option>
       </select>
+      <select id="filter-overdue" onchange="loadTickets()">
+        <option value="0">All Dates</option>
+        <option value="1">🔴 Overdue Only</option>
+      </select>
     </div>
     <div class="refresh-bar">
       <span id="tickets-count"></span>
@@ -435,17 +439,25 @@ async function loadStats() {
     <div class="stat-card open"><div class="number">${s.openTickets}</div><div class="label">Open Tickets</div></div>
     <div class="stat-card closed"><div class="number">${s.closedTickets}</div><div class="label">Closed</div></div>
     <div class="stat-card urgent"><div class="number">${s.urgentTickets}</div><div class="label">Urgent</div></div>
+    <div class="stat-card urgent" style="cursor:pointer" onclick="filterOverdue()"><div class="number">${s.overdueTickets}</div><div class="label">🔴 Overdue</div></div>
     <div class="stat-card reminders"><div class="number">${s.pendingReminders}</div><div class="label">Pending Reminders</div></div>
     <div class="stat-card team"><div class="number">${s.teamMembers}</div><div class="label">Team Members</div></div>
   `;
 }
 
 // ── Tickets ─────────────────────────────
+function filterOverdue() {
+  document.querySelector('.tab[data-tab="tickets"]').click();
+  document.getElementById('filter-overdue').value = '1';
+  loadTickets();
+}
+
 async function loadTickets() {
-  const status = document.getElementById('filter-status').value;
+  const status   = document.getElementById('filter-status').value;
   const priority = document.getElementById('filter-priority').value;
   const assignee = document.getElementById('filter-assignee').value;
-  const res = await fetch(API + `/api/tickets?status=${status}&priority=${priority}&assignee=${assignee}`);
+  const overdue  = document.getElementById('filter-overdue').value;
+  const res = await fetch(API + `/api/tickets?status=${status}&priority=${priority}&assignee=${assignee}&overdue=${overdue}`);
   const tickets = await res.json();
   document.getElementById('tickets-count').textContent = `${tickets.length} tickets`;
 
@@ -458,18 +470,26 @@ async function loadTickets() {
     <table>
       <thead><tr>
         <th>#</th><th>Title</th><th>Status</th><th>Priority</th>
-        <th>Assigned To</th><th>Created By</th><th>Age</th>
+        <th>Assigned To</th><th>Due Date</th><th>Age</th>
       </tr></thead>
-      <tbody>${tickets.map(t => `
-        <tr>
+      <tbody>${tickets.map(t => {
+        const nowTs = Math.floor(Date.now() / 1000);
+        const isOverdue = t.due_date && t.due_date < nowTs && t.status !== 'closed';
+        const dueCell = t.due_date
+          ? (isOverdue
+              ? `<span style="color:var(--red);font-weight:600">🔴 ${fmtDate(t.due_date)}</span>`
+              : `<span style="color:var(--muted)">📅 ${fmtDate(t.due_date)}</span>`)
+          : '<span style="color:var(--border)">—</span>';
+        return `<tr style="${isOverdue ? 'background:rgba(239,68,68,0.05)' : ''}">
           <td>${t.id}</td>
-          <td>${esc(t.title)}</td>
+          <td>${esc(t.title)}${t.project ? ` <span style="font-size:11px;color:var(--muted)">[${esc(t.project)}]</span>` : ''}</td>
           <td><span class="badge ${t.status}">${t.status.replace('_', ' ')}</span></td>
           <td><span class="badge ${t.priority}">${t.priority}</span></td>
           <td>${esc(t.assigned_to || '—')}</td>
-          <td>${esc(t.created_by)}</td>
+          <td>${dueCell}</td>
           <td>${ago(t.created_at)}</td>
-        </tr>`).join('')}
+        </tr>`;
+      }).join('')}
       </tbody>
     </table>`;
 }

@@ -24,11 +24,15 @@ export function generateSmartBriefing(): string {
 
   const prioEmoji: Record<string, string> = { urgent: '🚨', high: '🟧', medium: '🟩', low: '🟦' };
 
-  // All open tickets
+  // All open tickets — sorted by overdue first, then by priority
   const allOpen = db.prepare(`
-    SELECT id, title, priority, assigned_to, project, updated_at FROM tickets
-    WHERE status != 'closed' ORDER BY priority DESC
-  `).all() as any[];
+    SELECT id, title, priority, assigned_to, project, updated_at, due_date FROM tickets
+    WHERE status != 'closed'
+    ORDER BY
+      CASE WHEN due_date IS NOT NULL AND due_date < ? THEN 0 ELSE 1 END,
+      due_date ASC NULLS LAST,
+      CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END
+  `).all(ts) as any[];
 
   const byMember: Record<string, any[]> = {};
   const unassigned: any[] = [];
@@ -72,20 +76,21 @@ export function generateSmartBriefing(): string {
       continue;
     }
 
-    // Show urgent/high first
-    for (const t of urgentTasks.slice(0, 3)) {
-      const proj = t.project ? ` [${t.project}]` : '';
-      msg += `• ${prioEmoji[t.priority]} #${t.id} ${t.title}${proj}\n`;
-    }
-
-    // Then others (up to 5 total)
-    const shown = new Set(urgentTasks.slice(0, 3).map(t => t.id));
-    let count = shown.size;
+    // Show up to 5 tasks — overdue already sorted to top by query
+    const shown = new Set<number>();
+    let count = 0;
     for (const t of tasks) {
       if (count >= 5) break;
-      if (shown.has(t.id)) continue;
+      shown.add(t.id);
       const proj = t.project ? ` [${t.project}]` : '';
-      msg += `• ${prioEmoji[t.priority] ?? '•'} #${t.id} ${t.title}${proj}\n`;
+      const isOverdue = t.due_date && t.due_date < ts;
+      const dueStr = t.due_date
+        ? (isOverdue
+            ? ` 🔴 OVERDUE`
+            : ` 📅 ${new Date(t.due_date * 1000).toLocaleDateString('en-US', { timeZone: env.REPORT_TIMEZONE, month: 'short', day: 'numeric' })}`)
+        : '';
+      const icon = isOverdue ? '🔴' : prioEmoji[t.priority] ?? '•';
+      msg += `• ${icon} #${t.id} ${t.title}${proj}${dueStr}\n`;
       count++;
     }
     if (tasks.length > 5) msg += `• _…and ${tasks.length - 5} more_\n`;
@@ -120,30 +125,60 @@ export function generateSmartBriefing(): string {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 2. Deadline Proximity Alerts (roadmap + tickets)
+// 2. Deadline Proximity Alerts (tickets + roadmap)
 //    Returns null if nothing is due
 // ─────────────────────────────────────────────────────────────
 export function checkDeadlines(): string | null {
   const db = getSqlite();
   const ts = now();
-  const threeDays = ts + 3 * 86400;
   const alerts: string[] = [];
 
-  // Roadmap items with target dates
+  // Overdue tickets
+  const overdueTickets = db.prepare(`
+    SELECT id, title, assigned_to, due_date FROM tickets
+    WHERE due_date IS NOT NULL AND due_date < ? AND status != 'closed'
+    ORDER BY due_date ASC LIMIT 10
+  `).all(ts) as any[];
+
+  for (const t of overdueTickets) {
+    const daysLate = Math.floor((ts - t.due_date) / 86400);
+    const who = t.assigned_to ? ` (${t.assigned_to})` : '';
+    alerts.push(`🔴 **OVERDUE ${daysLate}d**: #${t.id} ${t.title}${who}`);
+  }
+
+  // Tickets due within 3 days
   const upcoming = db.prepare(`
-    SELECT id, title, target_date, status FROM roadmap_items
+    SELECT id, title, assigned_to, due_date FROM tickets
+    WHERE due_date IS NOT NULL AND due_date >= ? AND due_date <= ? AND status != 'closed'
+    ORDER BY due_date ASC LIMIT 10
+  `).all(ts, ts + 3 * 86400) as any[];
+
+  for (const t of upcoming) {
+    const daysLeft = Math.ceil((t.due_date - ts) / 86400);
+    const who = t.assigned_to ? ` (${t.assigned_to})` : '';
+    const dateStr = new Date(t.due_date * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' });
+    if (daysLeft === 0) {
+      alerts.push(`🚨 **DUE TODAY**: #${t.id} ${t.title}${who} — ${dateStr}`);
+    } else {
+      alerts.push(`⚡ **${daysLeft}d left**: #${t.id} ${t.title}${who} — ${dateStr}`);
+    }
+  }
+
+  // Roadmap items with target dates
+  const roadmapUpcoming = db.prepare(`
+    SELECT id, title, target_date FROM roadmap_items
     WHERE target_date IS NOT NULL AND status != 'done'
-    ORDER BY target_date ASC
+    ORDER BY target_date ASC LIMIT 5
   `).all() as any[];
 
-  for (const item of upcoming) {
+  for (const item of roadmapUpcoming) {
     const daysLeft = Math.ceil((item.target_date - ts) / 86400);
     if (daysLeft < 0) {
-      alerts.push(`❌ **OVERDUE** (${Math.abs(daysLeft)}d): _${item.title}_ — update or extend the deadline!`);
+      alerts.push(`❌ **ROADMAP OVERDUE** (${Math.abs(daysLeft)}d): _${item.title}_`);
     } else if (daysLeft === 0) {
-      alerts.push(`🚨 **DUE TODAY**: _${item.title}_ — is this shipping today?`);
+      alerts.push(`🚨 **ROADMAP DUE TODAY**: _${item.title}_`);
     } else if (daysLeft <= 3) {
-      alerts.push(`⚡ **${daysLeft} day(s) left**: _${item.title}_`);
+      alerts.push(`⚡ **ROADMAP ${daysLeft}d left**: _${item.title}_`);
     }
   }
 

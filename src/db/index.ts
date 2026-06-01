@@ -71,6 +71,7 @@ export function runMigrations() {
 
   // Project field on tickets (safe — ALTER TABLE is idempotent via try/catch)
   try { sqlite.exec(`ALTER TABLE tickets ADD COLUMN project TEXT`); } catch { /* already exists */ }
+  try { sqlite.exec(`ALTER TABLE tickets ADD COLUMN due_date INTEGER`); } catch { /* already exists */ }
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS sales_targets (

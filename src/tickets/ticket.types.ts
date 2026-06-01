@@ -7,6 +7,7 @@ export interface CreateTicketInput {
   priority?: TicketPriority;
   assignedTo?: string;
   project?: string;
+  dueDate?: number;   // unix timestamp
   createdBy: string;
 }
 
@@ -16,6 +17,7 @@ export interface UpdateTicketInput {
   assignedTo?: string;
   description?: string;
   project?: string;
+  dueDate?: number;   // unix timestamp
 }
 
 export interface TicketFilters {
@@ -23,5 +25,6 @@ export interface TicketFilters {
   priority?: TicketPriority;
   assignedTo?: string;
   project?: string;
+  overdue?: boolean;  // only tickets past their due_date
   limit?: number;
 }

@@ -14,6 +14,7 @@ export const tickets = sqliteTable('tickets', {
   createdBy:   text('created_by').notNull(),
   assignedTo:  text('assigned_to'),
   project:     text('project'),
+  dueDate:     integer('due_date'),   // unix timestamp, optional deadline
   createdAt:   integer('created_at').notNull().default(sql`(unixepoch())`),
   updatedAt:   integer('updated_at').notNull().default(sql`(unixepoch())`),
   closedAt:    integer('closed_at'),

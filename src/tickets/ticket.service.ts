@@ -11,6 +11,7 @@ export function createTicket(input: CreateTicketInput): Ticket {
     priority: input.priority ?? 'medium',
     assignedTo: input.assignedTo ?? null,
     project: input.project ?? null,
+    dueDate: input.dueDate ?? null,
     createdBy: input.createdBy,
     status: 'open',
   }).returning().get();
@@ -33,6 +34,7 @@ export function updateTicket(id: number, input: UpdateTicketInput): Ticket | nul
   if (input.description !== undefined) updates.description = input.description;
 
   if (input.project !== undefined) updates.project = input.project;
+  if (input.dueDate !== undefined) updates.dueDate = input.dueDate;
 
   if (input.status === 'closed') {
     updates.closedAt = Math.floor(Date.now() / 1000);
@@ -68,8 +70,12 @@ export function listTickets(filters: TicketFilters = {}): Ticket[] {
     query += ` AND LOWER(project) = LOWER(?)`;
     params.push(filters.project);
   }
+  if (filters.overdue) {
+    query += ` AND due_date IS NOT NULL AND due_date < ? AND status != 'closed'`;
+    params.push(Math.floor(Date.now() / 1000));
+  }
 
-  query += ` ORDER BY created_at DESC`;
+  query += ` ORDER BY CASE WHEN due_date IS NOT NULL THEN due_date ELSE 9999999999 END ASC, created_at DESC`;
 
   if (filters.limit) {
     query += ` LIMIT ?`;
@@ -102,6 +108,7 @@ function mapRow(row: any): Ticket {
     createdBy: row.created_by,
     assignedTo: row.assigned_to ?? null,
     project: row.project ?? null,
+    dueDate: row.due_date ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     closedAt: row.closed_at ?? null,
