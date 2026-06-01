@@ -62,9 +62,14 @@ export function reportEmbed(tickets: Ticket[], date: string, companyName: string
     if (list.length === 0) return '_None_';
     const lines = list.map(t => `• **#${t.id}** ${t.title} — ${PRIORITY_EMOJI[t.priority] ?? t.priority}${t.assignedTo ? ` @${t.assignedTo}` : ''}`);
     let result = '';
+    let shown = 0;
     for (const line of lines) {
-      if ((result + '\n' + line).length > 1000) { result += `\n_…and ${list.length - result.split('\n').length} more_`; break; }
+      if ((result + '\n' + line).length > 1000) {
+        result += `\n_…and ${list.length - shown} more_`;
+        break;
+      }
       result += (result ? '\n' : '') + line;
+      shown++;
     }
     return result;
   };
@@ -95,8 +100,20 @@ export function reminderEmbed(tickets: Ticket[], companyName: string): EmbedBuil
   const high       = tickets.filter(t => t.priority === 'high');
   const unassigned = tickets.filter(t => !t.assignedTo);
 
-  const fmt = (list: Ticket[]) =>
-    list.map(t => `• **#${t.id}** ${t.title}${t.assignedTo ? ` — @${t.assignedTo}` : ' — ⚠️ unassigned'}`).join('\n');
+  const fmt = (list: Ticket[]) => {
+    const lines = list.map(t => `• **#${t.id}** ${t.title}${t.assignedTo ? ` — @${t.assignedTo}` : ' — ⚠️ unassigned'}`);
+    let result = '';
+    let shown = 0;
+    for (const line of lines) {
+      if ((result + '\n' + line).length > 1000) {
+        result += `\n_…and ${list.length - shown} more_`;
+        break;
+      }
+      result += (result ? '\n' : '') + line;
+      shown++;
+    }
+    return result || '_None_';
+  };
 
   if (tickets.length === 0) {
     return new EmbedBuilder()

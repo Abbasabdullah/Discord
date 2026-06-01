@@ -112,15 +112,8 @@ export async function handleMessage(userId: string, text: string, username?: str
       continue;
     }
 
-    const finalText = response.text().trim();
-
-    // Gemini sometimes returns empty text after a tool call (large payloads).
-    // Nudge it once to format and display the results.
-    if (!finalText && madeToolCall && loopCount < MAX_LOOPS) {
-      currentMessage = 'Now format and display the results clearly to the user, grouped by team member as instructed.';
-      madeToolCall = false; // prevent infinite nudge loop
-      continue;
-    }
+    let finalText = '';
+    try { finalText = response.text().trim(); } catch { /* response had no text part */ }
 
     if (finalText) {
       saveModelText(userId, finalText);
@@ -128,6 +121,16 @@ export async function handleMessage(userId: string, text: string, username?: str
       updateUserMemory(userId, username ?? userId, text, finalText).catch(console.error);
       return finalText;
     }
+
+    // Gemini returned empty text. If a tool was called, nudge ONCE to format results.
+    if (madeToolCall) {
+      madeToolCall = false; // prevent re-nudging
+      currentMessage = 'Please now format and display the tool results clearly to the user, grouped by team member as instructed.';
+      continue;
+    }
+
+    // Empty text with no tool call and no nudge left — give up gracefully
+    break;
   }
 
   return '⚠️ Something went wrong. Please try again.';
