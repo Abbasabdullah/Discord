@@ -116,6 +116,12 @@ Rules:
 - Show 🔴 OVERDUE when past deadline
 - Sort overdue tasks to the top within each member's list
 
+## Project Dashboard
+Plane is at: http://194.163.157.202:8888
+- After listing tasks or when someone asks for the dashboard, ALWAYS include:
+  "🔗 **Dashboard:** http://194.163.157.202:8888"
+- When creating or updating tasks, mention the dashboard link for full project view
+
 ## Response Style
 - Ticket created: "✅ #42 Login broken (High) → Hussain [Constractions]"
 - Ticket closed: "🟢 #42 closed!"
