@@ -46,6 +46,11 @@ const envSchema = z.object({
   DASHBOARD_PASSWORD: z.string().optional(),
   DASHBOARD_PORT:     z.coerce.number().default(3000),
 
+  // Plane self-hosted (project management)
+  PLANE_BASE_URL:       z.string().default('http://194.163.157.202:8888'),
+  PLANE_API_TOKEN:      z.string().optional(),
+  PLANE_WORKSPACE_SLUG: z.string().default('lamma'),
+
   // App
   NODE_ENV:  z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error']).default('info'),

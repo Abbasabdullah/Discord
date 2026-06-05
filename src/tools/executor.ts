@@ -2,6 +2,12 @@ import * as ticketService from '../tickets/ticket.service';
 import * as reminderService from '../tickets/reminder.service';
 import * as salesService from '../sales/sales.service';
 import * as decisionsService from '../ai/decisions';
+import * as clientsService from '../sales/clients.service';
+import * as dealsService from '../sales/deals.service';
+import * as meetingsService from '../sales/meetings.service';
+import * as fulfillmentService from '../fulfillment/fulfillment.service';
+import * as milestonesService from '../fulfillment/milestones.service';
+import * as planeSync from '../plane/sync';
 import { normalizeAssignee } from '../utils/team';
 import { getSqlite } from '../db/index';
 import type { Ticket } from '../db/schema';
@@ -29,10 +35,39 @@ interface ToolInput {
   // roadmap
   item_id?: number;
   category?: string;
-  target_date?: string;
+  target_date?: string | number;
   // tickets
   due_date?: number;
   overdue?: boolean;
+  // sales CRM
+  name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+  client_name?: string;
+  scheduled_at?: number;
+  value_bhd?: number;
+  meeting_id?: number;
+  outcome?: string;
+  follow_up_at?: number;
+  lost_reason?: string;
+  deal_id?: number;
+  stage?: string;
+  expected_close?: number;
+  final_value_bhd?: number;
+  project_name?: string;
+  project_type?: string;
+  target_delivery?: number;
+  kickoff_at?: number;
+  client?: string;
+  owner?: string;
+  since_days?: number;
+  days_back?: number;
+  notes?: string;
+  // fulfillment
+  fulfillment_id?: number;
+  milestone_id?: number;
+  phase?: string;
+  reason?: string;
 }
 
 export function executeTool(toolName: string, input: ToolInput, callerPhone: string): string {
@@ -272,6 +307,366 @@ export function executeTool(toolName: string, input: ToolInput, callerPhone: str
         const workload = members.map(name => ({ name, open_tasks: map.get(name) ?? 0 }))
           .sort((a, b) => a.open_tasks - b.open_tasks);
         return JSON.stringify({ workload, suggestion: `${workload[0].name} has the lightest load (${workload[0].open_tasks} open tasks)` });
+      }
+
+      // ── Sales CRM ────────────────────────────────────
+      case 'create_client': {
+        if (!input.name) return JSON.stringify({ error: 'name is required' });
+        const c = clientsService.createClient({
+          name: input.name,
+          contactEmail: input.contact_email,
+          contactPhone: input.contact_phone,
+          notes: input.notes,
+          owner: normalizeAssignee(input.owner),
+        });
+        return JSON.stringify({ success: true, client_id: c.id, name: c.name });
+      }
+
+      case 'list_clients': {
+        const clients = clientsService.listClients(normalizeAssignee(input.owner));
+        return JSON.stringify({
+          count: clients.length,
+          clients: clients.map(c => ({
+            id: c.id, name: c.name, owner: c.owner,
+            email: c.contactEmail, phone: c.contactPhone,
+          })),
+        });
+      }
+
+      case 'log_meeting': {
+        if (!input.client_name) return JSON.stringify({ error: 'client_name is required' });
+        const result = meetingsService.logMeeting({
+          clientName: input.client_name,
+          title:      input.title,
+          scheduledAt: input.scheduled_at,
+          owner:      normalizeAssignee(input.owner),
+          notes:      input.notes,
+          valueBhd:   input.value_bhd,
+        });
+        return JSON.stringify({
+          success: true,
+          meeting_id: result.meeting.id,
+          client_name: result.meeting.clientName,
+          client_created: result.clientCreated,
+          deal_id: result.deal?.id ?? null,
+          deal_stage: result.deal?.stage ?? null,
+          scheduled_at: new Date(result.meeting.scheduledAt * 1000).toLocaleString('en-US', { timeZone: 'Asia/Bahrain', dateStyle: 'medium', timeStyle: 'short' }),
+        });
+      }
+
+      case 'update_meeting_outcome': {
+        if (!input.meeting_id || !input.outcome) return JSON.stringify({ error: 'meeting_id and outcome are required' });
+        try {
+          const result = meetingsService.updateMeetingOutcome(input.meeting_id, {
+            outcome:    input.outcome as any,
+            valueBhd:   input.value_bhd,
+            followUpAt: input.follow_up_at,
+            lostReason: input.lost_reason,
+            notes:      input.notes,
+          });
+          return JSON.stringify({
+            success: true,
+            meeting_id: result.meeting.id,
+            outcome: result.meeting.outcome,
+            deal_stage: result.deal?.stage ?? null,
+            deal_id: result.deal?.id ?? null,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? String(err) });
+        }
+      }
+
+      case 'list_meetings': {
+        const meetings = meetingsService.listMeetings({
+          owner:     normalizeAssignee(input.owner),
+          outcome:   input.outcome as any,
+          sinceDays: input.since_days,
+          limit:     30,
+        });
+        return JSON.stringify({
+          count: meetings.length,
+          meetings: meetings.map(m => ({
+            id: m.id,
+            client: m.clientName,
+            owner: m.owner,
+            title: m.title,
+            scheduled: new Date(m.scheduledAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+            outcome: m.outcome,
+            follow_up: m.followUpAt ? new Date(m.followUpAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }) : null,
+          })),
+        });
+      }
+
+      case 'create_deal': {
+        if (!input.title) return JSON.stringify({ error: 'title is required' });
+        const d = dealsService.createDeal({
+          clientName: input.client_name,
+          title:      input.title,
+          valueBhd:   input.value_bhd,
+          stage:      input.stage as any,
+          owner:      normalizeAssignee(input.owner),
+          expectedClose: input.expected_close,
+        });
+        return JSON.stringify({
+          success: true, deal_id: d.id, title: d.title, stage: d.stage,
+          value: d.valueBhd, client: d.clientName, owner: d.owner,
+        });
+      }
+
+      case 'move_deal': {
+        if (!input.deal_id || !input.stage) return JSON.stringify({ error: 'deal_id and stage required' });
+        const d = dealsService.updateDeal(input.deal_id, {
+          stage: input.stage as any,
+          notes: input.notes,
+        });
+        if (!d) return JSON.stringify({ error: `Deal #${input.deal_id} not found` });
+        return JSON.stringify({ success: true, deal_id: d.id, stage: d.stage });
+      }
+
+      case 'mark_deal_won': {
+        if (!input.deal_id) return JSON.stringify({ error: 'deal_id is required' });
+        const deal = dealsService.updateDeal(input.deal_id, {
+          stage: 'won',
+          valueBhd: input.final_value_bhd,
+        });
+        if (!deal) return JSON.stringify({ error: `Deal #${input.deal_id} not found` });
+        // Infer project_type if not provided
+        let projectType = input.project_type as 'custom' | 'lamma' | undefined;
+        if (!projectType) {
+          if (!deal.clientName || deal.clientName.toLowerCase() === 'lamma') projectType = 'lamma';
+          else projectType = 'custom';
+        }
+        const defaultDays = projectType === 'lamma' ? 3 : 30;
+        const kickoff = input.kickoff_at ?? Math.floor(Date.now() / 1000);
+        const target = input.target_delivery ?? (kickoff + defaultDays * 86400);
+        return JSON.stringify({
+          success: true,
+          deal_id: deal.id,
+          value: deal.valueBhd,
+          client: deal.clientName,
+          inferred_project_type: projectType,
+          inferred_project_name: input.project_name ?? `${deal.clientName ?? 'Internal'} — ${deal.title}`,
+          kickoff_at: new Date(kickoff * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+          target_delivery: new Date(target * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+          default_days: defaultDays,
+          next_step: `Confirm with the user, then call start_fulfillment with deal_id=${deal.id}, project_type=${projectType}, target_delivery=${target}`,
+        });
+      }
+
+      case 'mark_deal_lost': {
+        if (!input.deal_id || !input.lost_reason) return JSON.stringify({ error: 'deal_id and lost_reason required' });
+        const d = dealsService.updateDeal(input.deal_id, {
+          stage: 'lost',
+          lostReason: input.lost_reason,
+        });
+        if (!d) return JSON.stringify({ error: `Deal #${input.deal_id} not found` });
+        return JSON.stringify({ success: true, deal_id: d.id, lost_reason: d.lostReason });
+      }
+
+      case 'list_pipeline': {
+        let clientId: number | undefined;
+        if (input.client) {
+          const c = clientsService.findClientByName(input.client);
+          if (c) clientId = c.id;
+        }
+        const deals = dealsService.listDeals({
+          owner: normalizeAssignee(input.owner),
+          stage: input.stage as any,
+          clientId,
+          openOnly: !input.stage,
+        });
+        const summary = dealsService.getPipelineSummary(normalizeAssignee(input.owner));
+        return JSON.stringify({
+          open_value: Math.round(summary.openValue),
+          weighted_value: Math.round(summary.weightedValue),
+          total_open: summary.totalDeals,
+          by_stage: Object.fromEntries(
+            Object.entries(summary.byStage).map(([k, v]: [string, any]) => [
+              k,
+              { count: v.count, value: Math.round(v.value) },
+            ])
+          ),
+          deals: deals.slice(0, 30).map(d => ({
+            id: d.id, title: d.title, client: d.clientName, value: d.valueBhd,
+            stage: d.stage, owner: d.owner,
+            expected_close: d.expectedClose ? new Date(d.expectedClose * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }) : null,
+          })),
+        });
+      }
+
+      case 'pipeline_value': {
+        const s = dealsService.getPipelineSummary(normalizeAssignee(input.owner));
+        return JSON.stringify({
+          open_value: Math.round(s.openValue),
+          weighted_value: Math.round(s.weightedValue),
+          total_deals: s.totalDeals,
+          currency: 'BHD',
+        });
+      }
+
+      case 'sales_stats': {
+        const stats = dealsService.getSalesStats(input.days_back ?? 90);
+        return JSON.stringify({
+          window_days:    input.days_back ?? 90,
+          win_rate_pct:   Math.round(stats.winRate * 100),
+          won:            stats.wonCount,
+          lost:           stats.lostCount,
+          avg_deal_bhd:   stats.avgDealValue,
+          total_won_bhd:  stats.totalWonValue,
+          avg_cycle_days: stats.avgCycleDays,
+          top_lost_reason: stats.topLostReason,
+        });
+      }
+
+      // ── Fulfillment ──────────────────────────────────
+      case 'start_fulfillment': {
+        if (!input.deal_id) return JSON.stringify({ error: 'deal_id is required' });
+        try {
+          const { project, milestones } = fulfillmentService.fulfillmentForWonDeal(input.deal_id, {
+            projectName: input.project_name,
+            projectType: input.project_type as any,
+            kickoffAt:   input.kickoff_at,
+            targetDelivery: input.target_delivery,
+          });
+          // Fire-and-forget Plane sync (non-blocking)
+          planeSync.syncNewFulfillment(project, milestones).catch(err =>
+            console.error('Plane sync (background) error:', err?.message ?? err)
+          );
+          return JSON.stringify({
+            success: true,
+            fulfillment_id: project.id,
+            project_name: project.projectName,
+            project_type: project.projectType,
+            kickoff: new Date(project.kickoffAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+            target_delivery: new Date(project.targetDelivery * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+            owner: project.owner,
+            milestones_count: milestones.length,
+            milestones: milestones.map(m => ({
+              id: m.id, title: m.title, phase: m.phase,
+              target: new Date(m.targetDate * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+            })),
+            plane_dashboard: `http://194.163.157.202:8888/lamma/projects/`,
+          });
+        } catch (err: any) {
+          return JSON.stringify({ error: err.message ?? String(err) });
+        }
+      }
+
+      case 'complete_milestone': {
+        if (!input.milestone_id) return JSON.stringify({ error: 'milestone_id required' });
+        const m = milestonesService.completeMilestone(input.milestone_id, input.notes);
+        if (!m) return JSON.stringify({ error: `Milestone #${input.milestone_id} not found` });
+        // Close in Plane (non-blocking)
+        planeSync.closeMilestoneIssue(m).catch(err =>
+          console.error('Plane closeMilestoneIssue (background) error:', err?.message ?? err)
+        );
+        return JSON.stringify({ success: true, milestone_id: m.id, status: m.status, completed: true });
+      }
+
+      case 'add_milestone': {
+        if (!input.fulfillment_id || !input.title || !input.target_date) {
+          return JSON.stringify({ error: 'fulfillment_id, title, target_date required' });
+        }
+        const targetTs2 = typeof input.target_date === 'string'
+          ? Math.floor(new Date(input.target_date).getTime() / 1000)
+          : (input.target_date as number);
+        const m2 = milestonesService.createMilestone({
+          fulfillmentId: input.fulfillment_id,
+          title:         input.title,
+          phase:         input.phase ?? 'implementation',
+          targetDate:    targetTs2,
+        });
+        // Sync to Plane (background)
+        planeSync.syncMilestoneToIssue(m2).catch(err =>
+          console.error('Plane syncMilestoneToIssue (background) error:', err?.message ?? err)
+        );
+        return JSON.stringify({
+          success: true, milestone_id: m2.id, title: m2.title,
+          target: new Date(m2.targetDate * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+        });
+      }
+
+      case 'update_fulfillment_phase': {
+        if (!input.fulfillment_id || !input.phase) return JSON.stringify({ error: 'fulfillment_id and phase required' });
+        const f = fulfillmentService.updateFulfillment(input.fulfillment_id, {
+          currentPhase: input.phase as any,
+          lastCheckIn: Math.floor(Date.now() / 1000),
+        });
+        if (!f) return JSON.stringify({ error: `Fulfillment #${input.fulfillment_id} not found` });
+        return JSON.stringify({ success: true, fulfillment_id: f.id, current_phase: f.currentPhase });
+      }
+
+      case 'mark_fulfillment_at_risk': {
+        if (!input.fulfillment_id || !input.reason) return JSON.stringify({ error: 'fulfillment_id and reason required' });
+        const f = fulfillmentService.updateFulfillment(input.fulfillment_id, {
+          status: 'at_risk',
+          notes:  input.reason,
+        });
+        if (!f) return JSON.stringify({ error: `Fulfillment #${input.fulfillment_id} not found` });
+        return JSON.stringify({ success: true, fulfillment_id: f.id, status: f.status });
+      }
+
+      case 'complete_fulfillment': {
+        if (!input.fulfillment_id) return JSON.stringify({ error: 'fulfillment_id required' });
+        const f = fulfillmentService.updateFulfillment(input.fulfillment_id, {
+          status: 'done',
+          currentPhase: 'done',
+          notes: input.notes,
+        });
+        if (!f) return JSON.stringify({ error: `Fulfillment #${input.fulfillment_id} not found` });
+        return JSON.stringify({ success: true, fulfillment_id: f.id, status: 'done' });
+      }
+
+      case 'list_active_fulfillments': {
+        const list = fulfillmentService.listActiveFulfillments(normalizeAssignee(input.owner));
+        return JSON.stringify({
+          count: list.length,
+          fulfillments: list.map(f => {
+            const milestones = milestonesService.listMilestonesFor(f.id);
+            const done = milestones.filter(m => m.status === 'done').length;
+            return {
+              id: f.id,
+              project_name: f.projectName,
+              project_type: f.projectType,
+              phase: f.currentPhase,
+              status: f.status,
+              owner: f.owner,
+              target_delivery: new Date(f.targetDelivery * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+              progress: `${done}/${milestones.length}`,
+            };
+          }),
+        });
+      }
+
+      case 'fulfillment_status': {
+        if (!input.fulfillment_id) return JSON.stringify({ error: 'fulfillment_id required' });
+        const details = fulfillmentService.getFulfillmentDetails(input.fulfillment_id);
+        if (!details) return JSON.stringify({ error: `Fulfillment #${input.fulfillment_id} not found` });
+        const { project, milestones } = details;
+        const done = milestones.filter(m => m.status === 'done').length;
+        const now = Math.floor(Date.now() / 1000);
+        return JSON.stringify({
+          id:           project.id,
+          project_name: project.projectName,
+          project_type: project.projectType,
+          owner:        project.owner,
+          phase:        project.currentPhase,
+          status:       project.status,
+          kickoff:      new Date(project.kickoffAt * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+          target_delivery: new Date(project.targetDelivery * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+          days_since_kickoff: Math.floor((now - project.kickoffAt) / 86400),
+          days_to_delivery: Math.floor((project.targetDelivery - now) / 86400),
+          progress: `${done}/${milestones.length}`,
+          milestones: milestones.map(m => ({
+            id: m.id,
+            title: m.title,
+            phase: m.phase,
+            target: new Date(m.targetDate * 1000).toLocaleDateString('en-US', { timeZone: 'Asia/Bahrain', month: 'short', day: 'numeric' }),
+            status: m.status,
+            overdue: !m.completedAt && m.targetDate < now,
+            completed: !!m.completedAt,
+          })),
+        });
       }
 
       default:

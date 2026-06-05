@@ -6,6 +6,16 @@
  */
 import { getSqlite } from '../db/index';
 import { getCurrentTarget } from '../sales/sales.service';
+import { listMeetings, getMeetingsAwaitingOutcome, getTodaysMeetings } from '../sales/meetings.service';
+import { getPipelineSummary, getSalesStats } from '../sales/deals.service';
+import {
+  listActiveFulfillments,
+  getFulfillmentsNeedingCheckIn,
+  getWonDealsWithoutFulfillment,
+  type FulfillmentProject,
+} from '../fulfillment/fulfillment.service';
+import { getOverdueMilestones, listMilestonesFor, updateMilestoneStatus } from '../fulfillment/milestones.service';
+import { updateFulfillment } from '../fulfillment/fulfillment.service';
 import { env } from '../config/env';
 
 const TEAM = ['Hasan', 'Hussain', 'Abbas', 'Anas'];
@@ -293,6 +303,226 @@ export function checkWins(): string | null {
 
   if (celebrations.length === 0) return null;
   return `🎊 **Wins Update**\n\n${celebrations.join('\n')}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5b. Meeting outcome chase
+//     Meetings held >12h ago without an outcome → ping the owners
+// ─────────────────────────────────────────────────────────────
+export function checkMeetingOutcomesDue(): string | null {
+  const due = getMeetingsAwaitingOutcome(48);
+  if (due.length === 0) return null;
+
+  let msg = `📋 **Meeting Outcome Check** — ${due.length} meeting(s) still need an outcome:\n\n`;
+  for (const m of due) {
+    const when = new Date(m.scheduledAt * 1000).toLocaleDateString('en-US', {
+      timeZone: env.REPORT_TIMEZONE, month: 'short', day: 'numeric',
+    });
+    msg += `• **#${m.id}** ${m.title}`;
+    if (m.clientName) msg += ` — ${m.clientName}`;
+    if (m.owner) msg += ` (${m.owner})`;
+    msg += ` _(${when})_\n`;
+  }
+  msg += `\nReply: **closed** (won + value), **follow-up** (next date), or **lost** (reason). I'll log it. 📝`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5c. 4 PM Meeting registration prompt
+//     "Did you meet with any client today? Log it here."
+// ─────────────────────────────────────────────────────────────
+export function generateMeetingRegistrationPrompt(): string {
+  const today = getTodaysMeetings();
+  const pending = today.filter(m => m.outcome === 'pending');
+
+  let msg = `⏰ **4 PM Daily Check** — Did you meet with any clients today?\n\n`;
+  msg += `📅 Logged today: **${today.length}** meeting(s)\n`;
+  if (today.length > 0) {
+    for (const m of today.slice(0, 5)) {
+      const flag = m.outcome === 'pending' ? '⏳' : (m.outcome === 'closed' ? '✅' : m.outcome === 'lost' ? '❌' : '📞');
+      msg += `${flag} #${m.id} ${m.title}${m.clientName ? ` — ${m.clientName}` : ''} (${m.owner ?? '?'})\n`;
+    }
+    if (today.length > 5) msg += `  _…and ${today.length - 5} more_\n`;
+  }
+
+  msg += `\n**To log a meeting:** just type _"I met with [client] today about [X]"_ — I'll handle the rest.\n`;
+  if (pending.length > 0) {
+    msg += `\n⚠️ **${pending.length} pending outcome(s):** \`closed\` / \`follow-up\` / \`lost\` — tell me which.`;
+  }
+  msg += `\n\n_Also: make sure today's tickets are logged in the task system 📝_`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5d. Sales value report (replaces hardcoded Wed motivation)
+// ─────────────────────────────────────────────────────────────
+export function generateSalesValueReport(): string {
+  const target = getCurrentTarget();
+  const pipeline = getPipelineSummary();
+  const stats = getSalesStats(90);
+
+  let msg = `💰 **Sales Pipeline Update**\n\n`;
+
+  if (target) {
+    const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
+    const gap = target.targetAmount - target.currentAmount;
+    if (pct >= 100) {
+      msg += `🏆 **Week target SMASHED!** ${target.currentAmount}/${target.targetAmount} ${target.currency} (${pct}%)\n\n`;
+    } else {
+      msg += `🎯 Week so far: **${target.currentAmount}/${target.targetAmount} ${target.currency}** — gap **${gap} ${target.currency}**\n\n`;
+    }
+  }
+
+  msg += `**Open Pipeline:** ${Math.round(pipeline.openValue)} BHD (${pipeline.totalDeals} deals)\n`;
+  msg += `**Weighted Forecast:** ${Math.round(pipeline.weightedValue)} BHD\n\n`;
+
+  msg += `**By Stage:**\n`;
+  const stageEmoji: Record<string, string> = {
+    lead: '🟦', qualified: '🟪', meeting: '🟨',
+    proposal: '🟧', negotiation: '🔥',
+  };
+  for (const [stage, info] of Object.entries(pipeline.byStage) as any) {
+    if (info.count > 0) {
+      msg += `${stageEmoji[stage] ?? '•'} **${stage}**: ${info.count} deals · ${Math.round(info.value)} BHD\n`;
+    }
+  }
+
+  msg += `\n**Last 90 days:** ${stats.wonCount} won, ${stats.lostCount} lost · `;
+  msg += `win rate **${Math.round(stats.winRate * 100)}%**`;
+  if (stats.avgDealValue) msg += ` · avg deal ${Math.round(stats.avgDealValue)} BHD`;
+  if (stats.topLostReason) msg += `\n_Top lost reason: ${stats.topLostReason}_`;
+
+  msg += `\n\nLet's close strong! 💪`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5e. Pipeline health check
+//     Open deals (meeting+) with no activity 4+ days → nudge owners
+// ─────────────────────────────────────────────────────────────
+export function checkPipelineHealth(): string | null {
+  const db = getSqlite();
+  const ts = now();
+  const fourDaysAgo = ts - 4 * 86400;
+  const stuck = db.prepare(`
+    SELECT id, title, stage, owner, value_bhd, updated_at FROM deals
+    WHERE stage IN ('meeting', 'proposal', 'negotiation')
+      AND updated_at < ?
+    ORDER BY value_bhd DESC LIMIT 10
+  `).all(fourDaysAgo) as any[];
+
+  // Deals where expected_close has passed but stage is still open
+  const expiredClose = db.prepare(`
+    SELECT id, title, stage, owner, value_bhd, expected_close FROM deals
+    WHERE expected_close IS NOT NULL AND expected_close < ?
+      AND stage NOT IN ('won', 'lost')
+    ORDER BY expected_close ASC LIMIT 5
+  `).all(ts) as any[];
+
+  if (stuck.length === 0 && expiredClose.length === 0) return null;
+
+  let msg = `📊 **Pipeline Health**\n\n`;
+  if (stuck.length > 0) {
+    msg += `⏰ **Stuck deals** (no activity 4+ days):\n`;
+    for (const d of stuck) {
+      const days = Math.floor((ts - d.updated_at) / 86400);
+      msg += `• #${d.id} ${d.title} — ${d.value_bhd} BHD (${d.owner ?? '?'}) _${d.stage}, ${days}d cold_\n`;
+    }
+  }
+  if (expiredClose.length > 0) {
+    msg += `\n🚨 **Expected close date passed:**\n`;
+    for (const d of expiredClose) {
+      msg += `• #${d.id} ${d.title} — ${d.value_bhd} BHD (${d.owner ?? '?'}) _${d.stage}_\n`;
+    }
+  }
+  msg += `\nUpdate the stage or contact the client! 📞`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5f. Fulfillment health check
+//     Overdue milestones, projects with no check-in 7d, escalate to at_risk
+// ─────────────────────────────────────────────────────────────
+export function checkFulfillmentHealth(): string | null {
+  const overdue = getOverdueMilestones();
+  const needsCheckIn = getFulfillmentsNeedingCheckIn(7);
+
+  // Auto-mark milestones as overdue + escalate severely late projects to at_risk
+  const ts = now();
+  for (const m of overdue) {
+    if (m.status !== 'overdue') {
+      updateMilestoneStatus(m.id, 'overdue');
+    }
+    const daysLate = Math.floor((ts - m.targetDate) / 86400);
+    if (daysLate > 5) {
+      updateFulfillment(m.fulfillmentId, { status: 'at_risk', notes: `Auto-escalated: ${m.title} ${daysLate}d overdue` });
+    }
+  }
+
+  if (overdue.length === 0 && needsCheckIn.length === 0) return null;
+
+  let msg = `🏗️ **Fulfillment Health**\n\n`;
+  if (overdue.length > 0) {
+    msg += `❌ **Overdue milestones:**\n`;
+    for (const m of overdue.slice(0, 8)) {
+      const daysLate = Math.floor((ts - m.targetDate) / 86400);
+      msg += `• #${m.id} ${m.title} — ${m.projectName} (${m.owner ?? '?'}) _${daysLate}d late_\n`;
+    }
+    if (overdue.length > 8) msg += `  _…and ${overdue.length - 8} more_\n`;
+  }
+  if (needsCheckIn.length > 0) {
+    msg += `\n📞 **Need client check-in (no contact 7+ days):**\n`;
+    for (const f of needsCheckIn.slice(0, 5)) {
+      const since = f.lastCheckIn ? Math.floor((ts - f.lastCheckIn) / 86400) : Math.floor((ts - f.kickoffAt) / 86400);
+      msg += `• #${f.id} ${f.projectName} (${f.owner ?? '?'}) _${since}d since contact_\n`;
+    }
+  }
+  msg += `\nUpdate status with \`update_fulfillment_phase\` or \`complete_milestone\` to keep things on track ✅`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5g. Won deals waiting for fulfillment kickoff
+// ─────────────────────────────────────────────────────────────
+export function checkWonDealsAwaitingFulfillment(): string | null {
+  const list = getWonDealsWithoutFulfillment(7);
+  if (list.length === 0) return null;
+  let msg = `🎯 **Won deals waiting for fulfillment kickoff:**\n\n`;
+  for (const d of list) {
+    const days = Math.floor((Date.now() / 1000 - d.won_at) / 86400);
+    msg += `• Deal #${d.deal_id} ${d.title} — ${d.owner ?? '?'} _won ${days}d ago_\n`;
+  }
+  msg += `\nUse \`start_fulfillment\` to kick off delivery. The clock is ticking ⏰`;
+  return msg;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 5h. Saturday check-in roster
+// ─────────────────────────────────────────────────────────────
+export function generateClientCheckInRoster(): string | null {
+  const active = listActiveFulfillments();
+  if (active.length === 0) return null;
+  const TEAM_LIST = TEAM as readonly string[];
+  const byOwner: Record<string, FulfillmentProject[]> = {};
+  for (const f of active) {
+    const k = f.owner ?? 'Unassigned';
+    if (!byOwner[k]) byOwner[k] = [];
+    byOwner[k].push(f);
+  }
+  let msg = `📞 **Saturday Client Roster** — active fulfillments\n\n`;
+  for (const name of [...TEAM_LIST, 'Unassigned']) {
+    const list = byOwner[name];
+    if (!list || list.length === 0) continue;
+    msg += `**👤 ${name}** (${list.length})\n`;
+    for (const f of list.slice(0, 4)) {
+      const daysToDelivery = Math.floor((f.targetDelivery - Date.now() / 1000) / 86400);
+      const flag = daysToDelivery < 0 ? '🔴 OVERDUE' : daysToDelivery <= 3 ? `⚡ ${daysToDelivery}d left` : `📅 ${daysToDelivery}d`;
+      msg += `• #${f.id} ${f.projectName} _(${flag})_\n`;
+    }
+    msg += `\n`;
+  }
+  msg += `Reach out to each client this week. Keep them informed! 💬`;
+  return msg;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -10,6 +10,11 @@ import { getSqlite } from '../db/index';
 import { TEAM_MEMBERS } from '../utils/team';
 import { getCurrentTarget, getTargetHistory } from '../sales/sales.service';
 import { getDecisions } from '../ai/decisions';
+import { listDeals, getPipelineSummary, getSalesStats, STAGE_ORDER, updateDeal, getDeal } from '../sales/deals.service';
+import { listMeetings, updateMeetingOutcome } from '../sales/meetings.service';
+import { listClients } from '../sales/clients.service';
+import { listActiveFulfillments, getFulfillmentDetails, updateFulfillment } from '../fulfillment/fulfillment.service';
+import { listMilestonesFor, completeMilestone } from '../fulfillment/milestones.service';
 
 // Uploads directory
 const UPLOADS_DIR = path.resolve(process.cwd(), 'data', 'uploads');
@@ -369,6 +374,123 @@ export async function startDashboard() {
       db.prepare(`DELETE FROM roadmap_attachments WHERE id = ?`).run(parseInt(id));
     }
     return { success: true };
+  });
+
+  // ── Pipeline / Deals ───────────────────────────────────────
+  app.get('/api/pipeline', async (req) => {
+    const { owner, stage } = req.query as { owner?: string; stage?: string };
+    const deals = listDeals({
+      owner: owner && owner !== 'all' ? owner : undefined,
+      stage: stage as any,
+      openOnly: !stage || stage === 'all',
+    });
+    const summary = getPipelineSummary(owner && owner !== 'all' ? owner : undefined);
+    const stats = getSalesStats(90);
+    return {
+      stages: STAGE_ORDER.filter(s => s !== 'won' && s !== 'lost'),
+      summary: {
+        open_value:    Math.round(summary.openValue),
+        weighted:      Math.round(summary.weightedValue),
+        total:         summary.totalDeals,
+        win_rate_pct:  Math.round(stats.winRate * 100),
+        avg_deal:      Math.round(stats.avgDealValue),
+        avg_cycle:     stats.avgCycleDays,
+        top_lost:      stats.topLostReason,
+      },
+      by_stage: summary.byStage,
+      deals,
+    };
+  });
+
+  app.put('/api/deals/:id', async (req) => {
+    const id = parseInt((req.params as any).id);
+    const body = req.body as any;
+    const d = updateDeal(id, {
+      stage:      body.stage,
+      valueBhd:   body.value_bhd,
+      owner:      body.owner,
+      lostReason: body.lost_reason,
+      notes:      body.notes,
+    });
+    return { success: !!d, deal: d };
+  });
+
+  // ── Meetings ───────────────────────────────────────────────
+  app.get('/api/meetings', async (req) => {
+    const { outcome, owner } = req.query as { outcome?: string; owner?: string };
+    const list = listMeetings({
+      outcome: outcome && outcome !== 'all' ? outcome as any : undefined,
+      owner:   owner && owner !== 'all' ? owner : undefined,
+      sinceDays: 30,
+      limit: 100,
+    });
+    return list;
+  });
+
+  app.put('/api/meetings/:id/outcome', async (req) => {
+    const id = parseInt((req.params as any).id);
+    const body = req.body as any;
+    try {
+      const r = updateMeetingOutcome(id, {
+        outcome:    body.outcome,
+        valueBhd:   body.value_bhd,
+        followUpAt: body.follow_up_at,
+        lostReason: body.lost_reason,
+        notes:      body.notes,
+      });
+      return { success: true, meeting: r.meeting, deal_stage: r.deal?.stage };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ── Clients ────────────────────────────────────────────────
+  app.get('/api/clients', async () => listClients());
+
+  // ── Fulfillment ────────────────────────────────────────────
+  app.get('/api/fulfillment', async (req) => {
+    const { owner } = req.query as { owner?: string };
+    const projects = listActiveFulfillments(owner && owner !== 'all' ? owner : undefined);
+    // Include milestones for each
+    return projects.map(p => {
+      const milestones = listMilestonesFor(p.id);
+      const done = milestones.filter(m => m.status === 'done').length;
+      return {
+        ...p,
+        kickoff_at: p.kickoffAt,
+        target_delivery: p.targetDelivery,
+        project_name: p.projectName,
+        project_type: p.projectType,
+        plane_project_id: p.planeProjectId,
+        current_phase: p.currentPhase,
+        last_check_in: p.lastCheckIn,
+        progress_pct: milestones.length > 0 ? Math.round((done / milestones.length) * 100) : 0,
+        milestones_count: milestones.length,
+        milestones_done: done,
+      };
+    });
+  });
+
+  app.get('/api/fulfillment/:id', async (req) => {
+    const id = parseInt((req.params as any).id);
+    const details = getFulfillmentDetails(id);
+    if (!details) return { error: 'not_found' };
+    return {
+      project: details.project,
+      milestones: details.milestones,
+    };
+  });
+
+  app.post('/api/fulfillment/:id/check-in', async (req) => {
+    const id = parseInt((req.params as any).id);
+    const f = updateFulfillment(id, { lastCheckIn: Math.floor(Date.now() / 1000) });
+    return { success: !!f };
+  });
+
+  app.put('/api/milestones/:id/complete', async (req) => {
+    const id = parseInt((req.params as any).id);
+    const m = completeMilestone(id);
+    return { success: !!m };
   });
 
   // ── Start ──────────────────────────────────────────────────

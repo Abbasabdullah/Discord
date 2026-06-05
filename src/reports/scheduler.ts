@@ -15,6 +15,13 @@ import {
   checkWins,
   checkFollowUps,
   generateMeetingPrep,
+  checkMeetingOutcomesDue,
+  generateMeetingRegistrationPrompt,
+  generateSalesValueReport,
+  checkPipelineHealth,
+  checkFulfillmentHealth,
+  checkWonDealsAwaitingFulfillment,
+  generateClientCheckInRoster,
 } from '../ai/proactive';
 
 async function generateJoke(): Promise<string> {
@@ -104,7 +111,7 @@ export function startReportScheduler() {
 
   // ══════════════════════════════════════════════════════════════
   // 10 AM PROACTIVE BRAIN (Sat–Thu)
-  // Deadline alerts + follow-up nudges
+  // Deadline alerts + follow-up nudges + meeting outcome chase + pipeline health
   // ══════════════════════════════════════════════════════════════
   console.log(`🧠 Proactive brain (10 AM): "0 10 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 10 * * 0-4,6', async () => {
@@ -124,6 +131,38 @@ export function startReportScheduler() {
       if (followUps) await sendToAIChannel({ content: followUps });
     } catch (err) {
       console.error('❌ Follow-up check error:', err);
+    }
+
+    // Meeting outcome chase (yesterday/prior meetings without outcome)
+    try {
+      const outcomes = checkMeetingOutcomesDue();
+      if (outcomes) await sendChunked(outcomes);
+    } catch (err) {
+      console.error('❌ Meeting outcome chase error:', err);
+    }
+
+    // Pipeline health
+    try {
+      const health = checkPipelineHealth();
+      if (health) await sendChunked(health);
+    } catch (err) {
+      console.error('❌ Pipeline health error:', err);
+    }
+
+    // Fulfillment health
+    try {
+      const fh = checkFulfillmentHealth();
+      if (fh) await sendChunked(fh);
+    } catch (err) {
+      console.error('❌ Fulfillment health error:', err);
+    }
+
+    // Won deals awaiting kickoff
+    try {
+      const waiting = checkWonDealsAwaitingFulfillment();
+      if (waiting) await sendChunked(waiting);
+    } catch (err) {
+      console.error('❌ Won deals waiting check error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
@@ -161,17 +200,16 @@ export function startReportScheduler() {
   }, { timezone: env.REPORT_TIMEZONE });
 
   // ══════════════════════════════════════════════════════════════
-  // 4 PM TASK REGISTRATION REMINDER (Sat–Thu)
+  // 4 PM MEETING REGISTRATION + TASK REMINDER (Sat–Thu)
   // ══════════════════════════════════════════════════════════════
-  console.log(`📋 Task reminder (4 PM): "0 16 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
+  console.log(`📋 4 PM meeting & task prompt: "0 16 * * 0-4,6" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 16 * * 0-4,6', async () => {
-    console.log('\n📋 4 PM task reminder...');
+    console.log('\n📋 4 PM meeting & task prompt...');
     try {
-      await sendToAIChannel({
-        content: `⏰ **Daily Reminder** — It's 4:00 PM!\n\nPlease log any tasks you worked on today. Update ticket statuses so the team stays in sync. 📝`,
-      });
+      const prompt = generateMeetingRegistrationPrompt();
+      await sendChunked(prompt);
     } catch (err) {
-      console.error('❌ Task reminder error:', err);
+      console.error('❌ 4 PM prompt error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
@@ -202,6 +240,20 @@ export function startReportScheduler() {
       });
     } catch (err) {
       console.error('❌ Meeting reminder error:', err);
+    }
+  }, { timezone: env.REPORT_TIMEZONE });
+
+  // ══════════════════════════════════════════════════════════════
+  // SATURDAY 9 AM — CLIENT CHECK-IN ROSTER
+  // ══════════════════════════════════════════════════════════════
+  console.log(`📞 Saturday client roster: "0 9 * * 6" (${env.REPORT_TIMEZONE})`);
+  cron.schedule('0 9 * * 6', async () => {
+    console.log('\n📞 Saturday client roster...');
+    try {
+      const roster = generateClientCheckInRoster();
+      if (roster) await sendChunked(roster);
+    } catch (err) {
+      console.error('❌ Client roster error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 
@@ -287,27 +339,14 @@ export function startReportScheduler() {
   // ══════════════════════════════════════════════════════════════
   // SALES PUSH — WEDNESDAY 4 PM + THURSDAY 1 PM
   // ══════════════════════════════════════════════════════════════
-  console.log(`💰 Wednesday sales push: "0 16 * * 3" (${env.REPORT_TIMEZONE})`);
+  console.log(`💰 Wednesday sales value report: "0 16 * * 3" (${env.REPORT_TIMEZONE})`);
   cron.schedule('0 16 * * 3', async () => {
-    console.log('\n💰 Wednesday sales push...');
+    console.log('\n💰 Wednesday sales value report...');
     try {
-      const target = getCurrentTarget();
-      if (!target) return;
-      const gap = target.targetAmount - target.currentAmount;
-      const pct = Math.round((target.currentAmount / target.targetAmount) * 100);
-      let msg = '';
-      if (pct >= 100) {
-        msg = `🎉 **SALES TARGET SMASHED!** ${pct}% — ${target.currentAmount} ${target.currency} vs target of ${target.targetAmount}! Incredible with 2 days still left! 🏆`;
-      } else if (pct >= 75) {
-        msg = `🔥 **Sales — 2 days left!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\nJust **${gap} ${target.currency}** to close — you're SO close! 💪`;
-      } else if (pct >= 50) {
-        msg = `⚡ **Sales — Push time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** gap with Wed + Thu left. Every conversation counts! 🚀`;
-      } else {
-        msg = `💪 **Sales — Sprint time!**\n\nAt **${pct}%** (${target.currentAmount}/${target.targetAmount} ${target.currency})\n**${gap} ${target.currency}** remaining — big gap = big opportunity. Who's got a hot lead? 🔥`;
-      }
-      await sendToAIChannel({ content: msg });
+      const report = generateSalesValueReport();
+      await sendChunked(report);
     } catch (err) {
-      console.error('❌ Wednesday sales push error:', err);
+      console.error('❌ Wednesday sales report error:', err);
     }
   }, { timezone: env.REPORT_TIMEZONE });
 

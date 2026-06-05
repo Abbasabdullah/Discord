@@ -92,22 +92,51 @@ export async function handleMessage(userId: string, text: string, username?: str
   const MAX_LOOPS  = 10;
   let currentMessage: string | any[] = text;
   let madeToolCall = false;
+  let emptyNudged  = false;
 
   while (loopCount < MAX_LOOPS) {
     loopCount++;
+    console.log(`🔄 Loop ${loopCount}/${MAX_LOOPS} — sending ${typeof currentMessage === 'string' ? 'text' : 'functionResponse'}`);
 
-    const result        = await chat.sendMessage(currentMessage);
-    const response      = result.response;
+    let result, response;
+    try {
+      result   = await chat.sendMessage(currentMessage);
+      response = result.response;
+    } catch (err: any) {
+      console.error(`❌ Gemini sendMessage error (loop ${loopCount}):`, err?.message ?? err);
+      // If history is causing the issue, clear and retry once
+      if (loopCount === 1) {
+        console.log('🔄 Clearing history and retrying...');
+        clearHistory(userId);
+        chat = configuredModel.startChat({ history: [] });
+        currentMessage = text;
+        continue;
+      }
+      throw err;
+    }
+
     const functionCalls = response.functionCalls();
+    const candidate = response.candidates?.[0];
+    console.log(`📥 Response: ${functionCalls?.length ?? 0} tool calls, text length: ${(() => { try { return response.text().length; } catch { return 0; } })()}, finishReason: ${candidate?.finishReason}, parts: ${candidate?.content?.parts?.length ?? 0}`);
+    if (candidate?.finishReason && candidate.finishReason !== 'STOP') {
+      console.log('🚫 Full candidate:', JSON.stringify(candidate, null, 2));
+    }
+    if (response.promptFeedback?.blockReason) {
+      console.log('🚫 Prompt blocked:', JSON.stringify(response.promptFeedback));
+    }
 
     if (functionCalls && functionCalls.length > 0) {
       madeToolCall = true;
-      const responseParts = functionCalls.map(fc => ({
-        functionResponse: {
-          name:     fc.name,
-          response: { result: executeTool(fc.name, fc.args as any, username ?? userId) },
-        },
-      }));
+      const responseParts = functionCalls.map(fc => {
+        const toolResult = executeTool(fc.name, fc.args as any, username ?? userId);
+        console.log(`🔧 Tool ${fc.name} → ${toolResult.length} chars`);
+        return {
+          functionResponse: {
+            name:     fc.name,
+            response: { result: toolResult },
+          },
+        };
+      });
       currentMessage = responseParts;
       continue;
     }
@@ -124,14 +153,27 @@ export async function handleMessage(userId: string, text: string, username?: str
 
     // Gemini returned empty text. If a tool was called, nudge ONCE to format results.
     if (madeToolCall) {
-      madeToolCall = false; // prevent re-nudging
+      console.log('⚡ Empty response after tool call — nudging Gemini...');
+      madeToolCall = false;
       currentMessage = 'Please now format and display the tool results clearly to the user, grouped by team member as instructed.';
       continue;
     }
 
-    // Empty text with no tool call and no nudge left — give up gracefully
+    // No tool call AND empty text — Gemini ghosted us. Nudge once with explicit instruction.
+    if (!emptyNudged) {
+      console.log('⚡ Empty response, no tool call — nudging with explicit instruction...');
+      emptyNudged = true;
+      currentMessage = `The user asked: "${text}"\n\nPlease respond now. If they're asking about tasks, call list_tickets. If they're asking about sales, call get_sales_status. Otherwise, give a direct answer.`;
+      continue;
+    }
+
+    console.log('⚠️ Empty response after nudge, breaking');
     break;
   }
 
-  return '⚠️ Something went wrong. Please try again.';
+  // Save a placeholder so history stays alternating (user/model)
+  const fallback = '⚠️ Something went wrong. Please try again.';
+  saveModelText(userId, fallback);
+  trimHistory(userId);
+  return fallback;
 }

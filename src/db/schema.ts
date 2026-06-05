@@ -72,6 +72,86 @@ export const decisions = sqliteTable('decisions', {
   createdAt: integer('created_at').notNull().default(sql`(unixepoch())`),
 });
 
+export const clients = sqliteTable('clients', {
+  id:           integer('id').primaryKey({ autoIncrement: true }),
+  name:         text('name').notNull(),
+  contactEmail: text('contact_email'),
+  contactPhone: text('contact_phone'),
+  notes:        text('notes'),
+  owner:        text('owner'),  // canonical team member name
+  createdAt:    integer('created_at').notNull().default(sql`(unixepoch())`),
+  updatedAt:    integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const deals = sqliteTable('deals', {
+  id:            integer('id').primaryKey({ autoIncrement: true }),
+  clientId:      integer('client_id'),    // nullable for orphan deals
+  title:         text('title').notNull(),
+  valueBhd:      real('value_bhd').notNull().default(0),
+  stage:         text('stage', {
+                   enum: ['lead', 'qualified', 'meeting', 'proposal', 'negotiation', 'won', 'lost'],
+                 }).notNull().default('lead'),
+  owner:         text('owner'),
+  expectedClose: integer('expected_close'),
+  lostReason:    text('lost_reason'),
+  notes:         text('notes'),
+  wonAt:         integer('won_at'),
+  lostAt:        integer('lost_at'),
+  createdAt:     integer('created_at').notNull().default(sql`(unixepoch())`),
+  updatedAt:     integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const meetings = sqliteTable('meetings', {
+  id:          integer('id').primaryKey({ autoIncrement: true }),
+  clientId:    integer('client_id'),
+  dealId:      integer('deal_id'),
+  title:       text('title').notNull(),
+  scheduledAt: integer('scheduled_at').notNull(),
+  owner:       text('owner'),
+  status:      text('status', {
+                 enum: ['planned', 'held', 'rescheduled', 'cancelled'],
+               }).notNull().default('planned'),
+  outcome:     text('outcome', {
+                 enum: ['pending', 'closed', 'follow_up', 'lost', 'rescheduled'],
+               }).notNull().default('pending'),
+  followUpAt:  integer('follow_up_at'),
+  valueBhd:    real('value_bhd'),
+  notes:       text('notes'),
+  createdAt:   integer('created_at').notNull().default(sql`(unixepoch())`),
+  updatedAt:   integer('updated_at').notNull().default(sql`(unixepoch())`),
+});
+
+export const fulfillmentProjects = sqliteTable('fulfillment_projects', {
+  id:              integer('id').primaryKey({ autoIncrement: true }),
+  dealId:          integer('deal_id'),
+  clientId:        integer('client_id'),
+  projectName:     text('project_name').notNull(),
+  projectType:     text('project_type', { enum: ['custom', 'lamma'] }).notNull().default('custom'),
+  planeProjectId:  text('plane_project_id'),
+  kickoffAt:       integer('kickoff_at').notNull(),
+  targetDelivery:  integer('target_delivery').notNull(),
+  currentPhase:    text('current_phase').notNull().default('kickoff'),
+  status:          text('status', { enum: ['active', 'at_risk', 'done', 'cancelled'] }).notNull().default('active'),
+  lastCheckIn:     integer('last_check_in'),
+  owner:           text('owner'),
+  notes:           text('notes'),
+  createdAt:       integer('created_at').notNull().default(sql`(unixepoch())`),
+  completedAt:     integer('completed_at'),
+});
+
+export const fulfillmentMilestones = sqliteTable('fulfillment_milestones', {
+  id:             integer('id').primaryKey({ autoIncrement: true }),
+  fulfillmentId:  integer('fulfillment_id').notNull(),
+  title:          text('title').notNull(),
+  phase:          text('phase').notNull(),
+  targetDate:     integer('target_date').notNull(),
+  completedAt:    integer('completed_at'),
+  status:         text('status', { enum: ['pending', 'in_progress', 'done', 'overdue'] }).notNull().default('pending'),
+  planeIssueId:   text('plane_issue_id'),
+  notes:          text('notes'),
+  createdAt:      integer('created_at').notNull().default(sql`(unixepoch())`),
+});
+
 export const roadmapItems = sqliteTable('roadmap_items', {
   id:          integer('id').primaryKey({ autoIncrement: true }),
   title:       text('title').notNull(),

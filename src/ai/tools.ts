@@ -224,6 +224,271 @@ export const TOOLS: Tool[] = [
           required: [],
         },
       },
+      // ── Sales CRM tools ───────────────────────────────
+      {
+        name: 'create_client',
+        description: 'Create a new client (a company or person we sell to). Use when a new client is mentioned.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            name:           { type: 'STRING' as any, description: 'Client / company name' },
+            contact_email:  { type: 'STRING' as any, description: 'Primary contact email' },
+            contact_phone:  { type: 'STRING' as any, description: 'Primary phone number' },
+            notes:          { type: 'STRING' as any, description: 'Any background notes' },
+            owner:          { type: 'STRING' as any, description: 'Team member who owns the relationship' },
+          },
+          required: ['name'],
+        },
+      },
+      {
+        name: 'list_clients',
+        description: 'List clients, optionally filtered by owner. Returns up to 100 clients.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            owner: { type: 'STRING' as any, description: 'Filter by owner team member' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'log_meeting',
+        description: 'Log a client meeting that happened (or is scheduled). Auto-creates the client and a meeting-stage deal if needed. Use whenever the user mentions meeting a client.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            client_name:  { type: 'STRING' as any, description: 'The client we met with (auto-creates if not exists)' },
+            title:        { type: 'STRING' as any, description: 'Short title of the meeting (e.g. "Discovery call with Magna")' },
+            scheduled_at: { type: 'NUMBER' as any, description: 'When the meeting happened/will happen. Unix timestamp seconds. Defaults to now.' },
+            owner:        { type: 'STRING' as any, description: 'Team member who attended' },
+            notes:        { type: 'STRING' as any, description: 'Meeting notes' },
+            value_bhd:    { type: 'NUMBER' as any, description: 'Potential deal value in BHD if mentioned' },
+          },
+          required: ['client_name'],
+        },
+      },
+      {
+        name: 'update_meeting_outcome',
+        description: 'Update the outcome of a logged meeting and advance the related deal accordingly. closed → deal moves to won; follow_up → deal advances to negotiation; lost → deal moves to lost.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            meeting_id:    { type: 'NUMBER' as any, description: 'Meeting ID' },
+            outcome:       { type: 'STRING' as any, description: 'closed | follow_up | lost | rescheduled' },
+            value_bhd:     { type: 'NUMBER' as any, description: 'Final deal value if closed' },
+            follow_up_at:  { type: 'NUMBER' as any, description: 'When to follow up next, if outcome is follow_up. Unix timestamp seconds.' },
+            lost_reason:   { type: 'STRING' as any, description: 'Why the deal was lost' },
+            notes:         { type: 'STRING' as any, description: 'Additional notes' },
+          },
+          required: ['meeting_id', 'outcome'],
+        },
+      },
+      {
+        name: 'list_meetings',
+        description: 'List meetings, optionally filtered by outcome (pending = no outcome set yet) or owner or recent N days.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            outcome:    { type: 'STRING' as any, description: 'Filter: pending | closed | follow_up | lost' },
+            owner:      { type: 'STRING' as any, description: 'Filter by owner team member' },
+            since_days: { type: 'NUMBER' as any, description: 'Only meetings within the last N days' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'create_deal',
+        description: 'Create a sales deal (opportunity). Use for incoming leads. Defaults to lead stage.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            client_name:    { type: 'STRING' as any, description: 'Client this deal is with (auto-creates client)' },
+            title:          { type: 'STRING' as any, description: 'Deal title' },
+            value_bhd:      { type: 'NUMBER' as any, description: 'Estimated deal value in BHD' },
+            stage:          { type: 'STRING' as any, description: 'lead | qualified | meeting | proposal | negotiation' },
+            owner:          { type: 'STRING' as any, description: 'Owning team member' },
+            expected_close: { type: 'NUMBER' as any, description: 'Expected close date as unix timestamp seconds' },
+          },
+          required: ['title'],
+        },
+      },
+      {
+        name: 'move_deal',
+        description: 'Move a deal to a new pipeline stage.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            deal_id: { type: 'NUMBER' as any, description: 'Deal ID' },
+            stage:   { type: 'STRING' as any, description: 'lead | qualified | meeting | proposal | negotiation | won | lost' },
+            notes:   { type: 'STRING' as any, description: 'Why' },
+          },
+          required: ['deal_id', 'stage'],
+        },
+      },
+      {
+        name: 'mark_deal_won',
+        description: 'Mark a deal as won. Returns confirmation; user can then start fulfillment with start_fulfillment. project_type infers from client (existing client → custom, no client / Lamma → lamma).',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            deal_id:         { type: 'NUMBER' as any, description: 'Deal ID' },
+            final_value_bhd: { type: 'NUMBER' as any, description: 'Confirmed final value' },
+            project_name:    { type: 'STRING' as any, description: 'Fulfillment project name (defaults to deal title)' },
+            project_type:    { type: 'STRING' as any, description: 'custom (30-day default) or lamma (3-day default). If omitted, inferred from client.' },
+            target_delivery: { type: 'NUMBER' as any, description: 'Delivery deadline as unix timestamp seconds. Defaults to kickoff + 30d (custom) or +3d (lamma).' },
+            kickoff_at:      { type: 'NUMBER' as any, description: 'Kickoff timestamp; defaults to now' },
+          },
+          required: ['deal_id'],
+        },
+      },
+      {
+        name: 'mark_deal_lost',
+        description: 'Mark a deal as lost. ALWAYS capture the lost reason.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            deal_id:     { type: 'NUMBER' as any, description: 'Deal ID' },
+            lost_reason: { type: 'STRING' as any, description: 'Reason this deal was lost (price, competitor, no decision, etc.)' },
+          },
+          required: ['deal_id', 'lost_reason'],
+        },
+      },
+      {
+        name: 'list_pipeline',
+        description: 'Show the sales pipeline — all open deals grouped by stage with totals. Use whenever the team asks about pipeline, deals, or sales status.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            owner:  { type: 'STRING' as any, description: 'Filter by deal owner' },
+            stage:  { type: 'STRING' as any, description: 'Filter by single stage' },
+            client: { type: 'STRING' as any, description: 'Filter by client name' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'pipeline_value',
+        description: 'Get total open pipeline value (BHD) and weighted forecast (probability-weighted).',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            owner: { type: 'STRING' as any, description: 'Filter by owner' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'sales_stats',
+        description: 'Win rate, avg deal value, avg time to close, and top lost reason over the past 90 days.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            days_back: { type: 'NUMBER' as any, description: 'Lookback window in days (default 90)' },
+          },
+          required: [],
+        },
+      },
+      // ── Fulfillment tools ──────────────────────────────
+      {
+        name: 'start_fulfillment',
+        description: 'Start a fulfillment project from a won deal. Auto-generates default milestones (5 for custom 30d, 3 for lamma 3d). If project_type omitted, inferred from deal client. If target_delivery omitted, uses type default.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            deal_id:         { type: 'NUMBER' as any, description: 'Deal ID this fulfills' },
+            project_name:    { type: 'STRING' as any, description: 'Project name (defaults to "<Client> — <Deal title>")' },
+            project_type:    { type: 'STRING' as any, description: 'custom (30-day default) or lamma (3-day default)' },
+            target_delivery: { type: 'NUMBER' as any, description: 'Delivery deadline as unix timestamp seconds' },
+            kickoff_at:      { type: 'NUMBER' as any, description: 'Kickoff timestamp; defaults to now' },
+            notes:           { type: 'STRING' as any, description: 'Project notes' },
+          },
+          required: ['deal_id'],
+        },
+      },
+      {
+        name: 'add_milestone',
+        description: 'Add a custom milestone to a fulfillment project.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            fulfillment_id: { type: 'NUMBER' as any, description: 'Fulfillment project ID' },
+            title:          { type: 'STRING' as any, description: 'Milestone title' },
+            target_date:    { type: 'NUMBER' as any, description: 'Due date as unix timestamp seconds' },
+            phase:          { type: 'STRING' as any, description: 'kickoff | implementation | training | adoption | validation | live | done' },
+          },
+          required: ['fulfillment_id', 'title', 'target_date'],
+        },
+      },
+      {
+        name: 'complete_milestone',
+        description: 'Mark a milestone as done.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            milestone_id: { type: 'NUMBER' as any, description: 'Milestone ID' },
+            notes:        { type: 'STRING' as any, description: 'Notes about completion' },
+          },
+          required: ['milestone_id'],
+        },
+      },
+      {
+        name: 'update_fulfillment_phase',
+        description: 'Advance a fulfillment project to a new phase.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            fulfillment_id: { type: 'NUMBER' as any, description: 'Fulfillment project ID' },
+            phase:          { type: 'STRING' as any, description: 'kickoff | implementation | training | adoption | validation | live | done' },
+          },
+          required: ['fulfillment_id', 'phase'],
+        },
+      },
+      {
+        name: 'mark_fulfillment_at_risk',
+        description: 'Flag a fulfillment project as at risk and capture the reason.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            fulfillment_id: { type: 'NUMBER' as any, description: 'Fulfillment project ID' },
+            reason:         { type: 'STRING' as any, description: 'Why it is at risk' },
+          },
+          required: ['fulfillment_id', 'reason'],
+        },
+      },
+      {
+        name: 'complete_fulfillment',
+        description: 'Mark a fulfillment project as DONE (project delivered).',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            fulfillment_id: { type: 'NUMBER' as any, description: 'Fulfillment project ID' },
+            notes:          { type: 'STRING' as any, description: 'Closing notes' },
+          },
+          required: ['fulfillment_id'],
+        },
+      },
+      {
+        name: 'list_active_fulfillments',
+        description: 'List active fulfillment projects (in delivery), optionally filtered by owner.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            owner: { type: 'STRING' as any, description: 'Filter by owner' },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'fulfillment_status',
+        description: 'Get full status of a fulfillment project including all milestones and progress.',
+        parameters: {
+          type: 'OBJECT' as any,
+          properties: {
+            fulfillment_id: { type: 'NUMBER' as any, description: 'Fulfillment project ID' },
+          },
+          required: ['fulfillment_id'],
+        },
+      },
     ],
   },
 ];

@@ -277,6 +277,9 @@
     <button class="tab" data-tab="activity">Activity</button>
     <button class="tab" data-tab="team">Team</button>
     <button class="tab" data-tab="sales">💰 Sales</button>
+    <button class="tab" data-tab="pipeline">🎯 Pipeline</button>
+    <button class="tab" data-tab="meetings">📅 Meetings</button>
+    <button class="tab" data-tab="fulfillment">🏗️ Fulfillment</button>
     <button class="tab" data-tab="decisions">📝 Decisions</button>
     <button class="tab" data-tab="roadmap">🗺️ Roadmap</button>
   </div>
@@ -345,6 +348,53 @@
   <div class="panel" id="panel-sales">
     <div class="refresh-bar"><button onclick="loadSales()">Refresh</button></div>
     <div id="sales-content"></div>
+  </div>
+
+  <!-- Pipeline (Kanban) -->
+  <div class="panel" id="panel-pipeline">
+    <div class="filters">
+      <select id="pipeline-owner" onchange="loadPipeline()">
+        <option value="all">All Owners</option>
+        <option value="Hasan">Hasan</option><option value="Hussain">Hussain</option>
+        <option value="Abbas">Abbas</option><option value="Anas">Anas</option>
+      </select>
+      <button onclick="loadPipeline()" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:12px">Refresh</button>
+    </div>
+    <div id="pipeline-summary"></div>
+    <div id="pipeline-board" style="display:flex;gap:12px;overflow-x:auto;padding-top:12px"></div>
+  </div>
+
+  <!-- Meetings -->
+  <div class="panel" id="panel-meetings">
+    <div class="filters">
+      <select id="meetings-outcome" onchange="loadMeetings()">
+        <option value="all">All Outcomes</option>
+        <option value="pending">⏳ Pending</option>
+        <option value="closed">✅ Closed</option>
+        <option value="follow_up">📞 Follow-up</option>
+        <option value="lost">❌ Lost</option>
+      </select>
+      <select id="meetings-owner" onchange="loadMeetings()">
+        <option value="all">All Owners</option>
+        <option value="Hasan">Hasan</option><option value="Hussain">Hussain</option>
+        <option value="Abbas">Abbas</option><option value="Anas">Anas</option>
+      </select>
+      <button onclick="loadMeetings()" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:12px">Refresh</button>
+    </div>
+    <div id="meetings-table"></div>
+  </div>
+
+  <!-- Fulfillment -->
+  <div class="panel" id="panel-fulfillment">
+    <div class="filters">
+      <select id="fulfillment-owner" onchange="loadFulfillment()">
+        <option value="all">All Owners</option>
+        <option value="Hasan">Hasan</option><option value="Hussain">Hussain</option>
+        <option value="Abbas">Abbas</option><option value="Anas">Anas</option>
+      </select>
+      <button onclick="loadFulfillment()" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:12px">Refresh</button>
+    </div>
+    <div id="fulfillment-grid"></div>
   </div>
 
   <!-- Roadmap -->
@@ -429,7 +479,7 @@ async function checkAuth() {
 }
 
 // ── Load All ────────────────────────────
-function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); loadSales(); loadDecisions(); loadRoadmap(); }
+function loadAll() { loadStats(); loadTickets(); loadReminders(); loadActivity(); loadTeam(); loadSales(); loadDecisions(); loadRoadmap(); loadPipeline(); loadMeetings(); loadFulfillment(); }
 
 // ── Stats ───────────────────────────────
 async function loadStats() {
@@ -851,6 +901,213 @@ function closeLightbox() {
   const lb = document.getElementById('lightbox');
   lb.classList.remove('active');
   document.getElementById('lightbox-video').pause();
+}
+
+// ── Pipeline (Kanban) ────────────────────────
+const STAGE_COLORS = {
+  lead:        { bg: 'rgba(59,130,246,0.10)',  border: 'var(--blue)',   text: 'var(--blue)',   label: 'Lead' },
+  qualified:   { bg: 'rgba(168,85,247,0.10)',  border: '#a855f7',       text: '#a855f7',       label: 'Qualified' },
+  meeting:     { bg: 'rgba(234,179,8,0.10)',   border: 'var(--yellow)', text: 'var(--yellow)', label: 'Meeting' },
+  proposal:    { bg: 'rgba(249,115,22,0.10)',  border: 'var(--orange)', text: 'var(--orange)', label: 'Proposal' },
+  negotiation: { bg: 'rgba(239,68,68,0.10)',   border: 'var(--red)',    text: 'var(--red)',    label: 'Negotiation' },
+};
+
+async function loadPipeline() {
+  const owner = document.getElementById('pipeline-owner')?.value || 'all';
+  const res = await fetch(API + `/api/pipeline?owner=${owner}`);
+  const data = await res.json();
+
+  // Top summary band
+  const s = data.summary;
+  document.getElementById('pipeline-summary').innerHTML = `
+    <div class="stats" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:0">
+      <div class="stat-card open"><div class="number">${s.open_value}</div><div class="label">Open BHD</div></div>
+      <div class="stat-card team"><div class="number">${s.weighted}</div><div class="label">Weighted BHD</div></div>
+      <div class="stat-card"><div class="number">${s.total}</div><div class="label">Deals</div></div>
+      <div class="stat-card closed"><div class="number">${s.win_rate_pct}%</div><div class="label">Win rate (90d)</div></div>
+      <div class="stat-card reminders"><div class="number">${s.avg_deal}</div><div class="label">Avg BHD</div></div>
+      <div class="stat-card urgent"><div class="number">${s.avg_cycle ?? 0}d</div><div class="label">Avg cycle</div></div>
+    </div>
+    ${s.top_lost ? `<div style="margin-top:8px;font-size:12px;color:var(--muted)">Top lost reason: <strong>${esc(s.top_lost)}</strong></div>` : ''}
+  `;
+
+  // Kanban columns
+  const board = document.getElementById('pipeline-board');
+  board.innerHTML = data.stages.map(stage => {
+    const info = STAGE_COLORS[stage] || { bg: 'var(--card)', border: 'var(--border)', text: 'var(--muted)', label: stage };
+    const deals = data.deals.filter(d => d.stage === stage);
+    const totalValue = deals.reduce((sum, d) => sum + (d.value_bhd || d.valueBhd || 0), 0);
+    return `
+      <div style="flex:1;min-width:240px;background:${info.bg};border:1px solid ${info.border};border-radius:10px;padding:10px">
+        <div style="font-size:12px;color:${info.text};text-transform:uppercase;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between">
+          <span>${info.label} · ${deals.length}</span>
+          <span>${Math.round(totalValue)} BHD</span>
+        </div>
+        ${deals.map(d => {
+          const value = Math.round(d.value_bhd || d.valueBhd || 0);
+          const client = d.client_name || d.clientName || '—';
+          const owner = d.owner || '?';
+          return `<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px">
+            <div style="font-weight:600;font-size:13px;margin-bottom:4px">#${d.id} ${esc(d.title)}</div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:6px">${esc(client)} · ${esc(owner)}</div>
+            <div style="font-size:13px;color:${info.text};font-weight:600">${value} BHD</div>
+            <div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">
+              <button onclick="moveDealUI(${d.id}, 'next', '${stage}')" style="padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--muted);font-size:11px;cursor:pointer">→ Advance</button>
+              <button onclick="winDealUI(${d.id})" style="padding:3px 8px;border-radius:4px;border:1px solid var(--green);background:rgba(34,197,94,0.1);color:var(--green);font-size:11px;cursor:pointer">Won</button>
+              <button onclick="loseDealUI(${d.id})" style="padding:3px 8px;border-radius:4px;border:1px solid var(--red);background:rgba(239,68,68,0.1);color:var(--red);font-size:11px;cursor:pointer">Lost</button>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`;
+  }).join('');
+}
+
+const STAGE_NEXT = { lead: 'qualified', qualified: 'meeting', meeting: 'proposal', proposal: 'negotiation', negotiation: 'won' };
+
+async function moveDealUI(id, dir, currentStage) {
+  const next = STAGE_NEXT[currentStage] || 'won';
+  await fetch(API + `/api/deals/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage: next }),
+  });
+  loadPipeline();
+}
+
+async function winDealUI(id) {
+  const v = prompt('Final value in BHD?');
+  if (v === null) return;
+  await fetch(API + `/api/deals/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage: 'won', value_bhd: parseFloat(v) || 0 }),
+  });
+  loadPipeline();
+}
+
+async function loseDealUI(id) {
+  const r = prompt('Lost reason?');
+  if (!r) return;
+  await fetch(API + `/api/deals/${id}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage: 'lost', lost_reason: r }),
+  });
+  loadPipeline();
+}
+
+// ── Meetings ────────────────────────────────
+async function loadMeetings() {
+  const outcome = document.getElementById('meetings-outcome')?.value || 'all';
+  const owner = document.getElementById('meetings-owner')?.value || 'all';
+  const res = await fetch(API + `/api/meetings?outcome=${outcome}&owner=${owner}`);
+  const meetings = await res.json();
+  if (!meetings.length) {
+    document.getElementById('meetings-table').innerHTML = '<div class="empty">No meetings logged.<br><br>Ask the bot in Discord: <strong>"I met with [client] today"</strong></div>';
+    return;
+  }
+  const outcomeBadge = (o) => {
+    const map = { pending: { cls: 'open', label: '⏳ Pending' }, closed: { cls: 'closed', label: '✅ Closed' },
+                  follow_up: { cls: 'in_progress', label: '📞 Follow-up' }, lost: { cls: 'urgent', label: '❌ Lost' },
+                  rescheduled: { cls: 'pending', label: '🔄 Rescheduled' } };
+    const m = map[o] || { cls: 'low', label: o };
+    return `<span class="badge ${m.cls}">${m.label}</span>`;
+  };
+  document.getElementById('meetings-table').innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Client</th><th>Title</th><th>Owner</th><th>Date</th><th>Outcome</th><th>Follow-up</th><th>Value</th></tr></thead>
+      <tbody>${meetings.map(m => `
+        <tr>
+          <td>${m.id}</td>
+          <td>${esc(m.clientName || '—')}</td>
+          <td>${esc(m.title)}</td>
+          <td>${esc(m.owner || '?')}</td>
+          <td>${fmtDate(m.scheduledAt)}</td>
+          <td>${outcomeBadge(m.outcome)}</td>
+          <td>${m.followUpAt ? fmtDate(m.followUpAt) : '—'}</td>
+          <td>${m.valueBhd ? Math.round(m.valueBhd) + ' BHD' : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+// ── Fulfillment ─────────────────────────────
+async function loadFulfillment() {
+  const owner = document.getElementById('fulfillment-owner')?.value || 'all';
+  const res = await fetch(API + `/api/fulfillment?owner=${owner}`);
+  const projects = await res.json();
+  if (!projects.length) {
+    document.getElementById('fulfillment-grid').innerHTML = '<div class="empty">No active fulfillment projects.<br><br>When a deal is won, the bot creates a fulfillment project automatically.</div>';
+    return;
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  document.getElementById('fulfillment-grid').innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;margin-top:12px">
+      ${projects.map(p => {
+        const daysLeft = Math.floor((p.target_delivery - nowSec) / 86400);
+        const flag = daysLeft < 0 ? `<span class="badge urgent">🔴 ${Math.abs(daysLeft)}d OVERDUE</span>` :
+                     daysLeft <= 3 ? `<span class="badge open">⚡ ${daysLeft}d left</span>` :
+                     `<span class="badge medium">${daysLeft}d left</span>`;
+        const statusBadge = p.status === 'at_risk' ? '<span class="badge urgent">⚠️ At Risk</span>' :
+                            p.status === 'done' ? '<span class="badge closed">✅ Done</span>' :
+                            '<span class="badge closed">🟢 Active</span>';
+        const typeBadge = `<span class="badge ${p.project_type === 'lamma' ? 'medium' : 'low'}">${p.project_type}</span>`;
+        const planeBtn = p.plane_project_id
+          ? `<a href="http://194.163.157.202:8888/lamma/projects/${p.plane_project_id}/issues" target="_blank" style="padding:4px 10px;border-radius:4px;border:1px solid var(--accent);background:rgba(99,102,241,0.1);color:var(--accent);font-size:11px;text-decoration:none">📋 Open in Plane</a>`
+          : '<span style="font-size:11px;color:var(--muted)">Plane sync pending</span>';
+        return `
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+            <div>
+              <div style="font-weight:600;font-size:14px">#${p.id} ${esc(p.project_name)}</div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px">Owner: ${esc(p.owner || '?')} · ${typeBadge}</div>
+            </div>
+            ${statusBadge}
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px">
+            Phase: <strong style="color:var(--text)">${esc(p.current_phase)}</strong> · ${flag}
+          </div>
+          <div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden;margin-bottom:6px">
+            <div style="background:var(--accent);height:100%;width:${p.progress_pct}%;transition:width 0.3s"></div>
+          </div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:10px">
+            ${p.milestones_done}/${p.milestones_count} milestones done · ${p.progress_pct}%
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button onclick="showFulfillmentDetail(${p.id})" style="padding:4px 10px;border-radius:4px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:11px;cursor:pointer">View milestones</button>
+            <button onclick="checkInFulfillment(${p.id})" style="padding:4px 10px;border-radius:4px;border:1px solid var(--green);background:rgba(34,197,94,0.1);color:var(--green);font-size:11px;cursor:pointer">✓ Checked in today</button>
+            ${planeBtn}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+async function showFulfillmentDetail(id) {
+  const res = await fetch(API + `/api/fulfillment/${id}`);
+  const data = await res.json();
+  if (!data.project) return;
+  const lines = data.milestones.map(m => {
+    const flag = m.completed_at ? '✅' : m.status === 'overdue' ? '🔴' : '⏳';
+    const date = new Date(m.target_date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const btn = m.completed_at ? '' :
+      `<button onclick="completeMilestoneUI(${m.id}, ${id})" style="margin-left:8px;padding:2px 8px;border-radius:4px;border:1px solid var(--green);background:rgba(34,197,94,0.1);color:var(--green);font-size:11px;cursor:pointer">Done</button>`;
+    return `${flag} ${m.title} — ${date} <small style="color:var(--muted)">(${m.phase})</small>${btn}`;
+  });
+  alert(`${data.project.projectName}\n\n` + data.milestones.map(m => {
+    const flag = m.completed_at ? '✅' : m.status === 'overdue' ? '🔴' : '⏳';
+    const date = new Date(m.target_date * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${flag} ${m.title} — ${date} (${m.phase})`;
+  }).join('\n'));
+}
+
+async function completeMilestoneUI(milestoneId, fId) {
+  await fetch(API + `/api/milestones/${milestoneId}/complete`, { method: 'PUT' });
+  loadFulfillment();
+}
+
+async function checkInFulfillment(id) {
+  await fetch(API + `/api/fulfillment/${id}/check-in`, { method: 'POST' });
+  loadFulfillment();
 }
 
 // Auto-refresh every 30s
